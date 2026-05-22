@@ -851,7 +851,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2eea439b6be045d4fb2011a1da0dd901, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  url: file:///C:/Users/junwo/.gemini/antigravity/scratch/body-map-detector/index.html
+  url: https://jyoon006008.github.io/body-map-vr-experience/web/
 --- !u!114 &558497493
 MonoBehaviour:
   m_ObjectHideFlags: 0
