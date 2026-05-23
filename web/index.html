@@ -1023,10 +1023,14 @@ async function runAnalysis() {
 
   /* ── Phase 1: Alignment ────────────────────────────────────── */
   const MAX = 600;
-  const sc = Math.min(1, MAX / Math.max(sourceW, sourceH));
-  const workW = Math.round(sourceW * sc);
-  const workH = Math.round(sourceH * sc);
-  setStatus(`Aligning image (${workW}×${workH})…`);
+  const sc = Math.min(1, MAX / Math.max(templateW, templateH));
+  const workW = Math.round(templateW * sc);
+  const workH = Math.round(templateH * sc);
+
+  const workW_draw = Math.round(sourceW * sc);
+  const workH_draw = Math.round(sourceH * sc);
+
+  setStatus(`Aligning image…`);
   setProgress(5);
 
   // Template at work resolution
@@ -1036,12 +1040,12 @@ async function runAnalysis() {
   const tplData = ctxT.getImageData(0, 0, workW, workH).data;
 
   // Drawing at work resolution
-  const cD = document.getElementById('cDrawing'); cD.width = workW; cD.height = workH;
+  const cD = document.getElementById('cDrawing'); cD.width = workW_draw; cD.height = workH_draw;
   const ctxD = cD.getContext('2d', {willReadFrequently: true});
-  ctxD.drawImage(drawingImg, 0, 0, workW, workH);
-  const drwData = ctxD.getImageData(0, 0, workW, workH).data;
+  ctxD.drawImage(drawingImg, 0, 0, workW_draw, workH_draw);
+  const drwData = ctxD.getImageData(0, 0, workW_draw, workH_draw).data;
 
-  // 1a. Template bounding box
+  // 1a. Template bounding box (workW x workH space)
   let tplMinX = workW, tplMaxX = 0, tplMinY = workH, tplMaxY = 0, tplFound = false;
   for (let y = 0; y < workH; y++) for (let x = 0; x < workW; x++) {
     const i4 = (y * workW + x) * 4;
@@ -1072,11 +1076,12 @@ async function runAnalysis() {
     }
   }
 
-  // 1b. Drawing bounding box (dynamic threshold + shape score selection)
-  const borderX = Math.round(workW * 0.08), borderY = Math.round(workH * 0.08);
+  // 1b. Drawing bounding box (workW_draw x workH_draw space)
+  const borderX = Math.max(5, Math.round(workW_draw * 0.02));
+  const borderY = Math.max(5, Math.round(workH_draw * 0.02));
   let sumBg = 0, countBg = 0, minAvg = 255, foundDark = false;
-  for (let y = borderY; y < workH - borderY; y++) for (let x = borderX; x < workW - borderX; x++) {
-    const i4 = (y * workW + x) * 4;
+  for (let y = borderY; y < workH_draw - borderY; y++) for (let x = borderX; x < workW_draw - borderX; x++) {
+    const i4 = (y * workW_draw + x) * 4;
     const avg = (drwData[i4] + drwData[i4+1] + drwData[i4+2]) / 3;
     const sat = Math.max(drwData[i4], drwData[i4+1], drwData[i4+2]) - Math.min(drwData[i4], drwData[i4+1], drwData[i4+2]);
     if (sat < 30 && avg > 120) { sumBg += avg; countBg++; }
@@ -1086,27 +1091,27 @@ async function runAnalysis() {
   if (!foundDark) minAvg = 50;
   let outlineThreshold = Math.max(60, Math.min(135, minAvg + (meanBg - minAvg) * 0.35));
 
-  const outlineMask = new Uint8Array(workW * workH);
-  for (let y = borderY; y < workH - borderY; y++) for (let x = borderX; x < workW - borderX; x++) {
-    const i4 = (y * workW + x) * 4;
+  const outlineMask = new Uint8Array(workW_draw * workH_draw);
+  for (let y = borderY; y < workH_draw - borderY; y++) for (let x = borderX; x < workW_draw - borderX; x++) {
+    const i4 = (y * workW_draw + x) * 4;
     const avg = (drwData[i4] + drwData[i4+1] + drwData[i4+2]) / 3;
     const sat = Math.max(drwData[i4], drwData[i4+1], drwData[i4+2]) - Math.min(drwData[i4], drwData[i4+1], drwData[i4+2]);
     if (avg < outlineThreshold && sat < 45) {
-      outlineMask[y * workW + x] = 1;
+      outlineMask[y * workW_draw + x] = 1;
     }
   }
 
-  const outlineComps = connectedComponents(outlineMask, workW, workH);
+  const outlineComps = connectedComponents(outlineMask, workW_draw, workH_draw);
   let bestOutlineComp = null;
   let bestOutlineScore = -1;
 
   for (const comp of outlineComps) {
     if (comp.length < 200) continue; // Skip noise
 
-    let minX = workW, maxX = 0, minY = workH, maxY = 0;
+    let minX = workW_draw, maxX = 0, minY = workH_draw, maxY = 0;
     for (const idx of comp) {
-      const cx = idx % workW;
-      const cy = Math.floor(idx / workW);
+      const cx = idx % workW_draw;
+      const cy = Math.floor(idx / workW_draw);
       if (cx < minX) minX = cx;
       if (cx > maxX) maxX = cx;
       if (cy < minY) minY = cy;
@@ -1116,19 +1121,19 @@ async function runAnalysis() {
     const compH = maxY - minY + 1;
     const aspectRatio = compW / compH;
 
-    // Filters: height >= 50% and aspect ratio 0.25 to 0.8
-    if (compH < workH * 0.5) continue;
+    // Filters: height >= 50% of drawing and aspect ratio 0.25 to 0.8
+    if (compH < workH_draw * 0.5) continue;
     if (aspectRatio < 0.25 || aspectRatio > 0.8) continue;
 
-    // Scores
+    // Scores (calculated against template)
     const heightScore = 1.0 - Math.min(1.0, Math.abs(compH - tplH) / tplH);
     const aspectScore = 1.0 - Math.min(1.0, Math.abs(aspectRatio - tplAspect) / tplAspect);
 
     // Normalize component to 30x30 grid for shape IoU
     const candGrid = new Uint8Array(900);
     for (const idx of comp) {
-      const cx = idx % workW;
-      const cy = Math.floor(idx / workW);
+      const cx = idx % workW_draw;
+      const cy = Math.floor(idx / workW_draw);
       const nx = (cx - minX) / compW;
       const ny = (cy - minY) / compH;
       const gx = Math.min(29, Math.max(0, Math.round(nx * 29)));
@@ -1150,12 +1155,12 @@ async function runAnalysis() {
     }
   }
 
-  let drwMinX = borderX, drwMaxX = workW - borderX - 1, drwMinY = borderY, drwMaxY = workH - borderY - 1;
+  let drwMinX = borderX, drwMaxX = workW_draw - borderX - 1, drwMinY = borderY, drwMaxY = workH_draw - borderY - 1;
   if (bestOutlineComp) {
-    let minX = workW, maxX = 0, minY = workH, maxY = 0;
+    let minX = workW_draw, maxX = 0, minY = workH_draw, maxY = 0;
     for (const idx of bestOutlineComp) {
-      const cx = idx % workW;
-      const cy = Math.floor(idx / workW);
+      const cx = idx % workW_draw;
+      const cy = Math.floor(idx / workW_draw);
       if (cx < minX) minX = cx;
       if (cx > maxX) maxX = cx;
       if (cy < minY) minY = cy;
@@ -1171,12 +1176,6 @@ async function runAnalysis() {
   }
 
   // 1c. Aspect-ratio preserving contain-fit alignment
-  const cAlignedD = document.createElement('canvas');
-  cAlignedD.width = workW; cAlignedD.height = workH;
-  const ctxAlignedD = cAlignedD.getContext('2d');
-  ctxAlignedD.fillStyle = '#ffffff';
-  ctxAlignedD.fillRect(0, 0, workW, workH);
-
   const templateBBox = {
     x: tplMinX,
     y: tplMinY,
@@ -1192,33 +1191,62 @@ async function runAnalysis() {
     height: drwMaxY - drwMinY + 1
   };
 
-  // Contain-fit scale with 4% margin
-  let scale = Math.min(templateBBox.width / sourceBodyBBox.width, templateBBox.height / sourceBodyBBox.height);
+  // Convert bounding boxes to original full-resolution space to avoid rounding accumulative error
+  const templateBBoxOriginal = {
+    x: Math.round(templateBBox.x * templateW / workW),
+    y: Math.round(templateBBox.y * templateH / workH),
+    width: Math.round(templateBBox.width * templateW / workW),
+    height: Math.round(templateBBox.height * templateH / workH)
+  };
+  const templateBBoxOriginalCenterX = templateBBoxOriginal.x + templateBBoxOriginal.width / 2;
+  const templateBBoxOriginalCenterY = templateBBoxOriginal.y + templateBBoxOriginal.height / 2;
+
+  const sourceBodyBBoxOriginal = {
+    x: Math.round(sourceBodyBBox.x * sourceW / workW_draw),
+    y: Math.round(sourceBodyBBox.y * sourceH / workH_draw),
+    width: Math.round(sourceBodyBBox.width * sourceW / workW_draw),
+    height: Math.round(sourceBodyBBox.height * sourceH / workH_draw)
+  };
+
+  // Contain-fit scale with 4% margin (calculated at full-resolution)
+  let scale = Math.min(templateBBoxOriginal.width / sourceBodyBBoxOriginal.width, templateBBoxOriginal.height / sourceBodyBBoxOriginal.height);
   scale *= 0.96;
 
-  const destW = sourceBodyBBox.width * scale;
-  const destH = sourceBodyBBox.height * scale;
-  const destX = templateBBox.centerX - destW / 2;
-  const destY = templateBBox.centerY - destH / 2;
+  const destW = sourceBodyBBoxOriginal.width * scale;
+  const destH = sourceBodyBBoxOriginal.height * scale;
+  const destX = templateBBoxOriginalCenterX - destW / 2;
+  const destY = templateBBoxOriginalCenterY - destH / 2;
 
   // Log values as requested
   console.log({
+    sourceBodyBBox,
+    templateBBox,
+    scale,
+    destX,
+    destY,
+    destW,
+    destH,
     workW,
     workH,
     outW,
-    outH,
-    sourceBodyBBox,
-    templateBBox
+    outH
   });
 
-  const drawSrcX = sourceBodyBBox.x * sourceW / workW;
-  const drawSrcY = sourceBodyBBox.y * sourceH / workH;
-  const drawSrcW = sourceBodyBBox.width * sourceW / workW;
-  const drawSrcH = sourceBodyBBox.height * sourceH / workH;
+  const cAlignedD = document.createElement('canvas');
+  cAlignedD.width = workW; cAlignedD.height = workH;
+  const ctxAlignedD = cAlignedD.getContext('2d');
+  ctxAlignedD.fillStyle = '#ffffff';
+  ctxAlignedD.fillRect(0, 0, workW, workH);
+
+  // Scale destination coordinates to work resolution (using uniform workW/templateW factor)
+  const workDestX = destX * workW / templateW;
+  const workDestY = destY * workH / templateH;
+  const workDestW = destW * workW / templateW;
+  const workDestH = destH * workH / templateH;
 
   ctxAlignedD.drawImage(drawingImg,
-    drawSrcX, drawSrcY, drawSrcW, drawSrcH,
-    destX, destY, destW, destH);
+    sourceBodyBBoxOriginal.x, sourceBodyBBoxOriginal.y, sourceBodyBBoxOriginal.width, sourceBodyBBoxOriginal.height,
+    workDestX, workDestY, workDestW, workDestH);
   const alignedDrwData = ctxAlignedD.getImageData(0, 0, workW, workH).data;
 
   // Compute work-res outsideMask
@@ -1780,15 +1808,10 @@ async function runAnalysis() {
   fullCtx.fillStyle = '#ffffff';
   fullCtx.fillRect(0, 0, outW, outH);
 
-  // Contain-fit scale parameters scaled to outW & outH
-  const fullDestX = destX * outW / workW;
-  const fullDestY = destY * outH / workH;
-  const fullDestW = destW * outW / workW;
-  const fullDestH = destH * outH / workH;
-
+  // Contain-fit drawing at full-resolution directly
   fullCtx.drawImage(drawingImg,
-    drawSrcX, drawSrcY, drawSrcW, drawSrcH,
-    fullDestX, fullDestY, fullDestW, fullDestH);
+    sourceBodyBBoxOriginal.x, sourceBodyBBoxOriginal.y, sourceBodyBBoxOriginal.width, sourceBodyBBoxOriginal.height,
+    destX, destY, destW, destH);
   const fullD = fullCtx.getImageData(0, 0, outW, outH);
 
   // Template full-res for outline detection
@@ -1829,6 +1852,17 @@ async function runAnalysis() {
   const cAnn = document.getElementById('cAnn'); cAnn.width = workW; cAnn.height = workH;
   const annCtx = cAnn.getContext('2d');
   annCtx.drawImage(cAlignedD, 0, 0, workW, workH);
+
+  // Draw sourceBodyBBox debug rectangle (workDestX, workDestY, workDestW, workDestH) in dashed orange
+  annCtx.strokeStyle = '#FF9500';
+  annCtx.lineWidth = 2;
+  annCtx.setLineDash([4, 4]);
+  annCtx.strokeRect(workDestX, workDestY, workDestW, workDestH);
+  annCtx.setLineDash([]);
+  annCtx.fillStyle = '#FF9500';
+  annCtx.font = 'bold 11px JetBrains Mono, monospace';
+  annCtx.fillText('BODY SILHOUETTE LIMIT', workDestX + 5, workDestY + 15);
+
   const vizC = ['#ff3355','#33ff88','#3388ff','#ffee33','#ff33ee','#33ffee','#ff8833','#8833ff'];
   for (let i = 0; i < regions.length; i++) {
     const r = regions[i], c = vizC[i % vizC.length];
