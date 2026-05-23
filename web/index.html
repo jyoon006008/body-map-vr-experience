@@ -863,10 +863,30 @@ function getStandardColorCategory(pColor) {
 }
 
 function isColorCompatible(pColor, targetColor) {
-  const pCat = getStandardColorCategory(pColor);
-  const tCat = getStandardColorCategory(targetColor);
-  if (!pCat || !tCat) return false;
-  return pCat === tCat;
+  const cat1 = getStandardColorCategory(pColor) || pColor;
+  const cat2 = getStandardColorCategory(targetColor) || targetColor;
+  
+  if (!cat1 || !cat2) return false;
+  
+  // Forbidden rules
+  if (cat1 === 'black' || cat2 === 'black') return false;
+  if (cat1 === 'purple' && cat2 !== 'purple') return false;
+  if (cat2 === 'purple' && cat1 !== 'purple') return false;
+  
+  if (cat1 === 'blue' && cat2 === 'green') return false;
+  if (cat1 === 'green' && cat2 === 'blue') return false;
+  
+  if (cat1 === 'red' && cat2 === 'orange_brown') return false;
+  if (cat1 === 'orange_brown' && cat2 === 'red') return false;
+  
+  if (cat1 === cat2) return true;
+  
+  // allowedSimilarColorPair
+  const isGreenCyan = (cat1 === 'green' && cat2 === 'cyan') || (cat1 === 'cyan' && cat2 === 'green');
+  const isBlueCyan = (cat1 === 'blue' && cat2 === 'cyan') || (cat1 === 'cyan' && cat2 === 'blue');
+  const isYellowOrange = (cat1 === 'orange_brown' && cat2 === 'yellow') || (cat1 === 'yellow' && cat2 === 'orange_brown');
+  
+  return isGreenCyan || isBlueCyan || isYellowOrange;
 }
 
 function inferBodyPartAndSide(cx, cy, w, h) {
@@ -1030,8 +1050,10 @@ function buildRegionsFromDiffMask(finalDiffMask, alignedDrwData, workW, workH) {
       };
 
       candidates.push({
+        id: candidates.length,
         color: color,
         pixels: comp,
+        maskPixels: comp,
         bbox: {
           x: minX,
           y: minY,
@@ -1137,6 +1159,123 @@ function splitIntoComponents(pixels, workW) {
   return comps;
 }
 
+function getCentroid(pixels, workW) {
+  let sumX = 0;
+  let sumY = 0;
+  for (const idx of pixels) {
+    sumX += idx % workW;
+    sumY += Math.floor(idx / workW);
+  }
+  return {
+    x: pixels.length > 0 ? sumX / pixels.length : 0,
+    y: pixels.length > 0 ? sumY / pixels.length : 0
+  };
+}
+
+function recomputeRegionBBoxAndColor(r, workW, workH, alignedDrwData) {
+  if (!r.pixels || r.pixels.length === 0) return;
+  r.maskPixels = r.pixels;
+  let minX = workW, maxX = 0, minY = workH, maxY = 0;
+  let sumR = 0, sumG = 0, sumB = 0;
+  for (const idx of r.pixels) {
+    const cx = idx % workW;
+    const cy = Math.floor(idx / workW);
+    if (cx < minX) minX = cx;
+    if (cx > maxX) maxX = cx;
+    if (cy < minY) minY = cy;
+    if (cy > maxY) maxY = cy;
+    
+    const i4 = idx * 4;
+    sumR += alignedDrwData[i4];
+    sumG += alignedDrwData[i4+1];
+    sumB += alignedDrwData[i4+2];
+  }
+  
+  const rawW = maxX - minX + 1;
+  const rawH = maxY - minY + 1;
+  r.bbox = { x: minX, y: minY, width: rawW, height: rawH };
+  
+  const padX = Math.round(Math.max(rawW * 0.08, 6));
+  const padY = Math.round(Math.max(rawH * 0.08, 6));
+  const px = Math.max(0, minX - padX);
+  const py = Math.max(0, minY - padY);
+  const pw = Math.min(workW - px, rawW + padX * 2);
+  const ph = Math.min(workH - py, rawH + padY * 2);
+  r.paddedBBox = { x: px, y: py, width: pw, height: ph };
+
+  r.avgColor = { r: sumR / r.pixels.length, g: sumG / r.pixels.length, b: sumB / r.pixels.length };
+}
+
+function nearestMaskPixelDistance(a, b, workW) {
+  let pixels1 = [];
+  if (Array.isArray(a)) {
+    pixels1 = a;
+  } else if (a) {
+    pixels1 = a.maskPixels || a.pixels || [];
+  }
+  
+  let pixels2 = [];
+  if (Array.isArray(b)) {
+    pixels2 = b;
+  } else if (b) {
+    pixels2 = b.maskPixels || b.pixels || [];
+  }
+  
+  if (pixels1.length === 0 || pixels2.length === 0) return Infinity;
+  
+  let minDist = Infinity;
+  const step1 = Math.max(1, Math.floor(pixels1.length / 100));
+  const step2 = Math.max(1, Math.floor(pixels2.length / 100));
+  
+  for (let i = 0; i < pixels1.length; i += step1) {
+    const idx1 = pixels1[i];
+    const x1 = idx1 % workW;
+    const y1 = Math.floor(idx1 / workW);
+    
+    for (let j = 0; j < pixels2.length; j += step2) {
+      const idx2 = pixels2[j];
+      const x2 = idx2 % workW;
+      const y2 = Math.floor(idx2 / workW);
+      
+      const dist = Math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2);
+      if (dist < minDist) {
+        minDist = dist;
+      }
+    }
+  }
+  return minDist;
+}
+
+function isRegionCategoryCompatible(c1, c2) {
+  return isColorCompatible(c1, c2);
+}
+
+function canMergeFragment(fragment, region, workW) {
+  if (!isColorCompatible(fragment.color, region.color)) return false;
+  if (fragment.color === 'blue' && region.color === 'green') return false;
+  if (fragment.color === 'green' && region.color === 'blue') return false;
+
+  const fMask = fragment.maskPixels || fragment.pixels;
+  const rMask = region.maskPixels || region.pixels;
+  const spatialDistance = nearestMaskPixelDistance(fMask, rMask, workW);
+  const colorDist = colorDistance(fragment.avgColor, region.avgColor);
+
+  return spatialDistance < 45 && colorDist < 70;
+}
+
+function reassignmentScore(fragment, region, workW) {
+  if (!isColorCompatible(fragment.color, region.color)) return Infinity;
+  if (fragment.color === 'blue' && region.color === 'green') return Infinity;
+  if (fragment.color === 'green' && region.color === 'blue') return Infinity;
+
+  const fMask = fragment.maskPixels || fragment.pixels;
+  const rMask = region.maskPixels || region.pixels;
+  const d = nearestMaskPixelDistance(fMask, rMask, workW);
+  const c = colorDistance(fragment.avgColor, region.avgColor);
+
+  return d * 1.0 + c * 2.5;
+}
+
 function splitAndReassignOutliers(regions, workW, workH, bodyHeight, alignedDrwData) {
   let changed = true;
   let iterations = 0;
@@ -1152,97 +1291,84 @@ function splitAndReassignOutliers(regions, workW, workH, bodyHeight, alignedDrwD
       if (comps.length <= 1) continue;
       
       for (const comp of comps) {
-        let minX = workW, maxX = 0, minY = workH, maxY = 0;
-        for (const idx of comp) {
-          const cx = idx % workW;
-          const cy = Math.floor(idx / workW);
-          if (cx < minX) minX = cx;
-          if (cx > maxX) maxX = cx;
-          if (cy < minY) minY = cy;
-          if (cy > maxY) maxY = cy;
+        const parentRestPixels = parent.pixels.filter(px => !comp.includes(px));
+        let parentRestDist = Infinity;
+        if (parentRestPixels.length > 0) {
+          parentRestDist = nearestMaskPixelDistance({ pixels: comp }, { pixels: parentRestPixels }, workW);
         }
-        const compBBox = { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
         
-        let sumR = 0, sumG = 0, sumB = 0;
-        for (const idx of comp) {
-          const i4 = idx * 4;
-          sumR += alignedDrwData[i4];
-          sumG += alignedDrwData[i4+1];
-          sumB += alignedDrwData[i4+2];
-        }
-        const compAvgColor = {
-          r: sumR / comp.length,
-          g: sumG / comp.length,
-          b: sumB / comp.length
-        };
-        
-        const d_parent = centerDistance(compBBox, parent.bbox);
-        
-        if (d_parent >= bodyHeight * 0.20) {
+        if (parentRestDist >= bodyHeight * 0.18) {
           let bestTarget = null;
-          let minTargetDist = d_parent;
+          let minTargetDist = parentRestDist;
+          
+          let sumR = 0, sumG = 0, sumB = 0;
+          for (const idx of comp) {
+            const i4 = idx * 4;
+            sumR += alignedDrwData[i4];
+            sumG += alignedDrwData[i4+1];
+            sumB += alignedDrwData[i4+2];
+          }
+          const compAvgColor = {
+            r: sumR / comp.length,
+            g: sumG / comp.length,
+            b: sumB / comp.length
+          };
+          
+          let compBlueCount = 0;
+          let compCyanCount = 0;
+          let compGreenCount = 0;
+          let compYellowCount = 0;
+          let compRedCount = 0;
+          let compOrangeCount = 0;
+          let compPurpleCount = 0;
+          let compBlackCount = 0;
+          for (const idx of comp) {
+            const col = classifyPixelColorFromAlignedDrawing(alignedDrwData, idx);
+            if (col === 'blue') compBlueCount++;
+            else if (col === 'cyan') compCyanCount++;
+            else if (col === 'green') compGreenCount++;
+            else if (col === 'yellow') compYellowCount++;
+            else if (col === 'red') compRedCount++;
+            else if (col === 'orange_brown') compOrangeCount++;
+            else if (col === 'purple') compPurpleCount++;
+            else if (col === 'black') compBlackCount++;
+          }
+          let compColor = 'green';
+          let maxCount = -1;
+          const counts = { green: compGreenCount, blue: compBlueCount, cyan: compCyanCount, yellow: compYellowCount, red: compRedCount, orange_brown: compOrangeCount, purple: compPurpleCount, black: compBlackCount };
+          for (const [col, count] of Object.entries(counts)) {
+            if (count > maxCount) {
+              maxCount = count;
+              compColor = col;
+            }
+          }
           
           for (let j = 0; j < regions.length; j++) {
             if (i === j) continue;
             const target = regions[j];
-            const d_target = centerDistance(compBBox, target.bbox);
+            const d_target = nearestMaskPixelDistance({ pixels: comp }, target, workW);
             
             if (d_target < minTargetDist) {
-              const c_dist_target = colorDistance(compAvgColor, target.avgColor);
-              const c_dist_parent = colorDistance(compAvgColor, parent.avgColor);
-              
-              if (c_dist_target < c_dist_parent || c_dist_target < 90) {
-                minTargetDist = d_target;
-                bestTarget = target;
+              if (isColorCompatible(compColor, target.color)) {
+                const c_dist_target = colorDistance(compAvgColor, target.avgColor);
+                const c_dist_parent = colorDistance(compAvgColor, parent.avgColor);
+                
+                if (c_dist_target < 90 || c_dist_target < c_dist_parent) {
+                  minTargetDist = d_target;
+                  bestTarget = target;
+                }
               }
             }
           }
           
           if (bestTarget) {
-            console.log(`[split-outlier] Moving component from parent (${parent.color}) to target (${bestTarget.color}). d_parent=${d_parent.toFixed(1)}, d_target=${minTargetDist.toFixed(1)}`);
+            console.log(`[split-outlier] Moving component from parent (${parent.color}) to target (${bestTarget.color}). parentRestDist=${parentRestDist.toFixed(1)}, targetDist=${minTargetDist.toFixed(1)}`);
             
-            const compSet = new Set(comp);
-            parent.pixels = parent.pixels.filter(px => !compSet.has(px));
-            
+            parent.pixels = parentRestPixels;
             bestTarget.pixels = [...bestTarget.pixels, ...comp];
             
-            if (parent.pixels.length > 0) {
-              let pMinX = workW, pMaxX = 0, pMinY = workH, pMaxY = 0;
-              let pSumR = 0, pSumG = 0, pSumB = 0;
-              for (const idx of parent.pixels) {
-                const cx = idx % workW;
-                const cy = Math.floor(idx / workW);
-                if (cx < pMinX) pMinX = cx;
-                if (cx > pMaxX) pMaxX = cx;
-                if (cy < pMinY) pMinY = cy;
-                if (cy > pMaxY) pMaxY = cy;
-                
-                const i4 = idx * 4;
-                pSumR += alignedDrwData[i4];
-                pSumG += alignedDrwData[i4+1];
-                pSumB += alignedDrwData[i4+2];
-              }
-              parent.bbox = { x: pMinX, y: pMinY, width: pMaxX - pMinX + 1, height: pMaxY - pMinY + 1 };
-              parent.avgColor = { r: pSumR / parent.pixels.length, g: pSumG / parent.pixels.length, b: pSumB / parent.pixels.length };
-            }
-            
-            let tMinX = workW, tMaxX = 0, tMinY = workH, tMaxY = 0;
-            let tSumR = 0, tSumG = 0, tSumB = 0;
-            for (const idx of bestTarget.pixels) {
-              const cx = idx % workW;
-              const cy = Math.floor(idx / workW);
-              if (cx < tMinX) tMinX = cx;
-              if (cx > tMaxX) tMaxX = cx;
-              if (cy < tMinY) tMinY = cy;
-              if (cy > tMaxY) tMaxY = cy;
-              
-              const i4 = idx * 4;
-              tSumR += alignedDrwData[i4];
-              tSumG += alignedDrwData[i4+1];
-              tSumB += alignedDrwData[i4+2];
-            }
-            bestTarget.bbox = { x: tMinX, y: tMinY, width: tMaxX - tMinX + 1, height: tMaxY - tMinY + 1 };
-            bestTarget.avgColor = { r: tSumR / bestTarget.pixels.length, g: tSumG / bestTarget.pixels.length, b: tSumB / bestTarget.pixels.length };
+            recomputeRegionBBoxAndColor(parent, workW, workH, alignedDrwData);
+            recomputeRegionBBoxAndColor(bestTarget, workW, workH, alignedDrwData);
             
             const isGreenCyan = (bestTarget.color === 'green' || bestTarget.color === 'cyan');
             const isBlueCyan = (bestTarget.color === 'blue' || bestTarget.color === 'cyan');
@@ -1278,25 +1404,73 @@ function splitAndReassignOutliers(regions, workW, workH, bodyHeight, alignedDrwD
   return regions;
 }
 
-function isRegionColorCompatible(r1, r2) {
-  const c1 = r1.color;
-  const c2 = r2.color;
-  if (c1 === c2) return true;
-  
-  const isGreenCyan = (c1 === 'green' && c2 === 'cyan') || (c1 === 'cyan' && c2 === 'green');
-  const isBlueCyan = (c1 === 'blue' && c2 === 'cyan') || (c1 === 'cyan' && c2 === 'blue');
-  const isYellowOrange = (c1 === 'orange_brown' && c2 === 'yellow') || (c1 === 'yellow' && c2 === 'orange_brown');
-  
-  return isGreenCyan || isBlueCyan || isYellowOrange;
-}
-
-function reassignmentScore(fragment, region) {
-  if (!isRegionColorCompatible(fragment, region)) return Infinity;
-
-  const d = bboxDistance(fragment.bbox, region.bbox);
-  const c = colorDistance(fragment.avgColor, region.avgColor);
-
-  return d * 1.0 + c * 2.5;
+function fixMisplacedBlueFragmentsInGreen(regions, workW, workH, alignedDrwData) {
+  let changed = true;
+  let iterations = 0;
+  while (changed && iterations < 5) {
+    changed = false;
+    iterations++;
+    for (let i = 0; i < regions.length; i++) {
+      const parent = regions[i];
+      if (parent.color !== 'green') continue;
+      
+      const comps = splitIntoComponents(parent.pixels, workW);
+      if (comps.length <= 1) continue;
+      
+      for (const comp of comps) {
+        let blueCount = 0;
+        let cyanCount = 0;
+        let greenCount = 0;
+        for (const idx of comp) {
+          const col = classifyPixelColorFromAlignedDrawing(alignedDrwData, idx);
+          if (col === 'blue') blueCount++;
+          else if (col === 'cyan') cyanCount++;
+          else if (col === 'green') greenCount++;
+        }
+        
+        const isBlueOrCyanComp = (blueCount > 0 || cyanCount > 0) && (blueCount + cyanCount > greenCount);
+        if (isBlueOrCyanComp) {
+          const compColor = (blueCount >= cyanCount) ? 'blue' : 'cyan';
+          const parentRestPixels = parent.pixels.filter(px => !comp.includes(px));
+          if (parentRestPixels.length === 0) continue;
+          
+          const parentDist = nearestMaskPixelDistance(comp, parentRestPixels, workW);
+          
+          let nearestTarget = null;
+          let minTargetDist = Infinity;
+          for (let j = 0; j < regions.length; j++) {
+            const target = regions[j];
+            if (target === parent) continue;
+            if (target.color === 'blue' || target.color === 'cyan') {
+              const dist = nearestMaskPixelDistance(comp, target, workW);
+              if (dist < minTargetDist) {
+                minTargetDist = dist;
+                nearestTarget = target;
+              }
+            }
+          }
+          
+          if (nearestTarget && (minTargetDist <= parentDist || minTargetDist < parentDist * 1.5 || minTargetDist < 50)) {
+            console.log(`[fix-misplaced-blue] Moving misplaced ${compColor} component from green region to ${nearestTarget.color} target region. targetDist=${minTargetDist.toFixed(1)}, parentDist=${parentDist.toFixed(1)}`);
+            
+            parent.pixels = parentRestPixels;
+            nearestTarget.pixels = [...nearestTarget.pixels, ...comp];
+            
+            recomputeRegionBBoxAndColor(parent, workW, workH, alignedDrwData);
+            recomputeRegionBBoxAndColor(nearestTarget, workW, workH, alignedDrwData);
+            
+            if (parent.pixels.length === 0) {
+              regions.splice(i, 1);
+            }
+            changed = true;
+            break;
+          }
+        }
+      }
+      if (changed) break;
+    }
+  }
+  return regions;
 }
 
 function reassignSmallFragments(regions, workW, workH, alignedDrwData) {
@@ -1309,17 +1483,15 @@ function reassignSmallFragments(regions, workW, workH, alignedDrwData) {
       const bboxArea = fragment.bbox.width * fragment.bbox.height;
       
       if (pixelCount < 800 || bboxArea < 1500) {
-        const fragY = (fragment.bbox.y + fragment.bbox.height / 2) / workH;
+        const fragCenter = getCentroid(fragment.pixels || fragment.maskPixels, workW);
+        const fragY = fragCenter.y / workH;
         
         function isValidCandidate(target) {
-          const dist = bboxDistance(fragment.bbox, target.bbox);
-          if (dist >= 40) return false;
+          if (!canMergeFragment(fragment, target, workW)) return false;
           
-          const targetY = (target.bbox.y + target.bbox.height / 2) / workH;
+          const targetCenter = getCentroid(target.pixels || target.maskPixels, workW);
+          const targetY = targetCenter.y / workH;
           if (Math.abs(fragY - targetY) >= 0.15) return false;
-          
-          const cDist = colorDistance(fragment.avgColor, target.avgColor);
-          if (cDist >= 80) return false;
           
           return true;
         }
@@ -1332,7 +1504,7 @@ function reassignSmallFragments(regions, workW, workH, alignedDrwData) {
           if (i === j) continue;
           const other = regions[j];
           if (other.color === fragment.color && isValidCandidate(other)) {
-            const score = reassignmentScore(fragment, other);
+            const score = reassignmentScore(fragment, other, workW);
             if (score < bestScore) {
               bestScore = score;
               bestTarget = other;
@@ -1345,8 +1517,8 @@ function reassignSmallFragments(regions, workW, workH, alignedDrwData) {
           for (let j = 0; j < regions.length; j++) {
             if (i === j) continue;
             const other = regions[j];
-            if (other.color !== fragment.color && isRegionColorCompatible(fragment, other) && isValidCandidate(other)) {
-              const score = reassignmentScore(fragment, other);
+            if (other.color !== fragment.color && isColorCompatible(fragment.color, other.color) && isValidCandidate(other)) {
+              const score = reassignmentScore(fragment, other, workW);
               if (score < bestScore) {
                 bestScore = score;
                 bestTarget = other;
@@ -1355,42 +1527,35 @@ function reassignSmallFragments(regions, workW, workH, alignedDrwData) {
           }
         }
 
+        const candidateRegions = regions.map(r => {
+          if (r === fragment) return null;
+          const cDist = colorDistance(fragment.avgColor, r.avgColor);
+          const mDist = nearestMaskPixelDistance(fragment, r, workW);
+          const comp = isColorCompatible(fragment.color, r.color);
+          const score = reassignmentScore(fragment, r, workW);
+          return {
+            id: r.id,
+            color: r.color,
+            colorDistance: cDist,
+            maskDistance: mDist,
+            compatible: comp,
+            score: score
+          };
+        }).filter(x => x !== null);
+
+        console.log({
+          fragmentColor: fragment.color,
+          fragmentAvgColor: fragment.avgColor,
+          fragmentCenter: fragCenter,
+          candidateRegions: candidateRegions,
+          assignedTo: bestTarget ? bestTarget.id : 'none'
+        });
+
         if (bestTarget) {
-          const dist = bboxDistance(fragment.bbox, bestTarget.bbox);
-          const cDist = colorDistance(fragment.avgColor, bestTarget.avgColor);
-          console.log(`[reassign-fragment] Merging fragment (${fragment.color}) into target (${bestTarget.color}), dist=${dist.toFixed(1)}, cDist=${cDist.toFixed(1)}, score=${bestScore.toFixed(1)}`);
-          
           const mergedPixels = [...bestTarget.pixels, ...fragment.pixels];
           bestTarget.pixels = mergedPixels;
           
-          let minX = workW, maxX = 0, minY = workH, maxY = 0;
-          for (const idx of mergedPixels) {
-            const cx = idx % workW;
-            const cy = Math.floor(idx / workW);
-            if (cx < minX) minX = cx;
-            if (cx > maxX) maxX = cx;
-            if (cy < minY) minY = cy;
-            if (cy > maxY) maxY = cy;
-          }
-          bestTarget.bbox = {
-            x: minX,
-            y: minY,
-            width: maxX - minX + 1,
-            height: maxY - minY + 1
-          };
-          
-          let sumR = 0, sumG = 0, sumB = 0;
-          for (const idx of mergedPixels) {
-            const i4 = idx * 4;
-            sumR += alignedDrwData[i4];
-            sumG += alignedDrwData[i4+1];
-            sumB += alignedDrwData[i4+2];
-          }
-          bestTarget.avgColor = {
-            r: sumR / mergedPixels.length,
-            g: sumG / mergedPixels.length,
-            b: sumB / mergedPixels.length
-          };
+          recomputeRegionBBoxAndColor(bestTarget, workW, workH, alignedDrwData);
           
           const isGreenCyan = (bestTarget.color === 'green' || bestTarget.color === 'cyan');
           const isBlueCyan = (bestTarget.color === 'blue' || bestTarget.color === 'cyan');
@@ -1421,6 +1586,12 @@ function reassignSmallFragments(regions, workW, workH, alignedDrwData) {
   return regions;
 }
 
+function centroidDistance(r1, r2, workW) {
+  const c1 = getCentroid(r1.pixels || r1.maskPixels, workW);
+  const c2 = getCentroid(r2.pixels || r2.maskPixels, workW);
+  return Math.sqrt((c1.x - c2.x) ** 2 + (c1.y - c2.y) ** 2);
+}
+
 function mergeSameColorRegions(candidates, workW, workH, bodyHeight, alignedDrwData) {
   const COLOR_SIM_THRESHOLD = 130;
   let changed = true;
@@ -1433,6 +1604,12 @@ function mergeSameColorRegions(candidates, workW, workH, bodyHeight, alignedDrwD
         
         const colorA = r1.color;
         const colorB = r2.color;
+        
+        // Strict blue-green forbid check
+        if ((colorA === 'blue' && colorB === 'green') || (colorA === 'green' && colorB === 'blue')) {
+          continue;
+        }
+        
         const sameColor = (colorA === colorB);
         
         const isSimilarColorPair = (
@@ -1442,22 +1619,20 @@ function mergeSameColorRegions(candidates, workW, workH, bodyHeight, alignedDrwD
         const simColor = isSimilarColorPair && (colorDistance(r1.avgColor, r2.avgColor) < COLOR_SIM_THRESHOLD);
         
         const isGreenCyanPair = (colorA === 'green' && colorB === 'cyan') || (colorA === 'cyan' && colorB === 'green');
+        const maskDist = nearestMaskPixelDistance(r1, r2, workW);
+        const centDist = centroidDistance(r1, r2, workW);
+
         const greenCyanSpecial = isGreenCyanPair &&
-                                  bboxDistance(r1.bbox, r2.bbox) < 35 &&
+                                  maskDist < 35 &&
                                   getVerticalOverlapRatio(r1.bbox, r2.bbox) > 0.25;
 
-        const maxDim = Math.max(r1.bbox.width, r1.bbox.height, r2.bbox.width, r2.bbox.height);
-        const spatiallyClose =
-          bboxDistance(r1.bbox, r2.bbox) < maxDim * 0.45 ||
-          centerDistance(r1.bbox, r2.bbox) < bodyHeight * 0.10;
+        const spatiallyClose = maskDist < 45 || centDist < bodyHeight * 0.10;
 
         const r1_ncy = (r1.bbox.y + r1.bbox.height / 2) / workH;
         const r2_ncy = (r2.bbox.y + r2.bbox.height / 2) / workH;
         const sameBodyZone = Math.abs(r1_ncy - r2_ncy) < 0.18;
 
-        const tooFar =
-          bboxDistance(r1.bbox, r2.bbox) > bodyHeight * 0.18 &&
-          centerDistance(r1.bbox, r2.bbox) > bodyHeight * 0.22;
+        const tooFar = maskDist > bodyHeight * 0.18 && centDist > bodyHeight * 0.22;
 
         let shouldMerge = false;
         if (greenCyanSpecial) {
@@ -1479,39 +1654,9 @@ function mergeSameColorRegions(candidates, workW, workH, bodyHeight, alignedDrwD
           });
 
           const mergedPixels = [...r1.pixels, ...r2.pixels];
-          
-          let minX = workW, maxX = 0, minY = workH, maxY = 0;
-          for (const idx of mergedPixels) {
-            const cx = idx % workW;
-            const cy = Math.floor(idx / workW);
-            if (cx < minX) minX = cx;
-            if (cx > maxX) maxX = cx;
-            if (cy < minY) minY = cy;
-            if (cy > maxY) maxY = cy;
-          }
-          const compW = maxX - minX + 1;
-          const compH = maxY - minY + 1;
-
           r1.pixels = mergedPixels;
-          r1.bbox = {
-            x: minX,
-            y: minY,
-            width: compW,
-            height: compH
-          };
-
-          let sumR = 0, sumG = 0, sumB = 0;
-          for (const idx of mergedPixels) {
-            const i4 = idx * 4;
-            sumR += alignedDrwData[i4];
-            sumG += alignedDrwData[i4+1];
-            sumB += alignedDrwData[i4+2];
-          }
-          r1.avgColor = {
-            r: sumR / mergedPixels.length,
-            g: sumG / mergedPixels.length,
-            b: sumB / mergedPixels.length
-          };
+          
+          recomputeRegionBBoxAndColor(r1, workW, workH, alignedDrwData);
 
           if (colorA !== colorB) {
             let greenCount = 0;
@@ -2219,6 +2364,7 @@ async function runAnalysis() {
 
   let finalMergedRegions = mergeSameColorRegions(candidates, workW, workH, bodyHeight, alignedDrwData);
   finalMergedRegions = splitAndReassignOutliers(finalMergedRegions, workW, workH, bodyHeight, alignedDrwData);
+  finalMergedRegions = fixMisplacedBlueFragmentsInGreen(finalMergedRegions, workW, workH, alignedDrwData);
   finalMergedRegions = reassignSmallFragments(finalMergedRegions, workW, workH, alignedDrwData);
   console.log("After filtering & merging & reassigning:", finalMergedRegions.length);
 
