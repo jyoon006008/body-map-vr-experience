@@ -351,12 +351,14 @@ You must respond with a JSON object in this format:
 
 // Bind manual inputs and load LocalStorage on startup
 window.addEventListener('DOMContentLoaded', () => {
-  // Only override if LocalStorage explicitly has a value, otherwise keep the default decoded keys
-  if (localStorage.getItem('openAiApiKey')) {
-    openAiApiKey = localStorage.getItem('openAiApiKey');
+  // Only override if LocalStorage explicitly has a valid key string, otherwise keep the default decoded keys
+  const storedOai = localStorage.getItem('openAiApiKey');
+  if (storedOai && storedOai.trim().startsWith('sk-')) {
+    openAiApiKey = storedOai.trim();
   }
-  if (localStorage.getItem('tripo3DApiKey')) {
-    tripo3DApiKey = localStorage.getItem('tripo3DApiKey');
+  const storedTripo = localStorage.getItem('tripo3DApiKey');
+  if (storedTripo && storedTripo.trim().startsWith('tsk_')) {
+    tripo3DApiKey = storedTripo.trim();
   }
   
   const oaiInput = document.getElementById('openAiKeyInput');
