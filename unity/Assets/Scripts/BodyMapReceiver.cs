@@ -359,6 +359,35 @@ public class BodyMapReceiver : MonoBehaviour
                     continue;
                 }
 
+                if (request.HttpMethod == "GET" && request.Url.AbsolutePath == "/api_keys")
+                {
+                    string keysJson = "{}";
+                    try
+                    {
+                        string path = Path.Combine(Application.dataPath, "../api_keys.json");
+                        if (File.Exists(path))
+                        {
+                            keysJson = File.ReadAllText(path);
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"[BodyMapReceiver] api_keys.json not found at {path}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"[BodyMapReceiver] Error reading api_keys.json: {ex.Message}");
+                    }
+
+                    byte[] buffer = Encoding.UTF8.GetBytes(keysJson);
+                    response.StatusCode = 200;
+                    response.ContentType = "application/json";
+                    response.ContentLength64 = buffer.Length;
+                    response.OutputStream.Write(buffer, 0, buffer.Length);
+                    response.Close();
+                    continue;
+                }
+
                 if (request.HttpMethod == "POST" && request.Url.AbsolutePath == "/upload")
                 {
                     using (var reader = new StreamReader(request.InputStream, request.ContentEncoding))

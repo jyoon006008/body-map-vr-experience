@@ -106,6 +106,28 @@ input[type=file]{display:none}
   <!-- LEFT -->
   <div class="panel panel-l">
     <div class="sec">
+      <div class="sec-label">API Configuration</div>
+      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <label style="font-size: 11px; color: var(--text-dim);">OpenAI API Key</label>
+          <button class="btn btn-s" style="padding: 2px 6px; font-size: 9px;" onclick="toggleKeyVisibility('openAiKeyInput')">Show/Hide</button>
+        </div>
+        <input type="password" id="openAiKeyInput" placeholder="sk-..." style="width: 100%; box-sizing: border-box; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px; border-radius: var(--radius); font-family: monospace; font-size: 11px;">
+        
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
+          <label style="font-size: 11px; color: var(--text-dim);">Tripo3D API Key</label>
+          <button class="btn btn-s" style="padding: 2px 6px; font-size: 9px;" onclick="toggleKeyVisibility('tripoKeyInput')">Show/Hide</button>
+        </div>
+        <input type="password" id="tripoKeyInput" placeholder="tsk_..." style="width: 100%; box-sizing: border-box; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px; border-radius: var(--radius); font-family: monospace; font-size: 11px;">
+        
+        <div style="font-size: 10px; color: var(--text-dim); display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
+          <span id="apiKeysStatus">🔑 Loading keys...</span>
+          <button class="btn btn-s" style="padding: 2px 6px; font-size: 9px;" onclick="fetchKeysFromUnity()">Reload from Unity</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec">
       <div class="sec-label">01 — Upload Participant Drawing</div>
       <div class="upload" id="uploadZone" onclick="document.getElementById('fileInput').click()">
         <div class="ico">🖌️</div>
@@ -181,6 +203,8 @@ let drawingImg = null;    // participant's drawing Image
 let result = null;        // analysis output
 let currentTab = 'transparent';
 let unityConnected = false;
+let openAiApiKey = '';
+let tripo3DApiKey = '';
  
 /* ═══════════════════════════════════════════════
    LOAD TEMPLATE ON STARTUP
@@ -210,7 +234,10 @@ async function checkUnity() {
     if (res.ok) {
       statusEl.textContent = '🟢 Unity Active';
       statusEl.className = 'unity-status online';
-      unityConnected = true;
+      if (!unityConnected) {
+        unityConnected = true;
+        await fetchKeysFromUnity();
+      }
     } else {
       throw new Error();
     }
@@ -222,6 +249,153 @@ async function checkUnity() {
 }
 setInterval(checkUnity, 2000); // check connection every 2s
 checkUnity();
+
+async function fetchKeysFromUnity() {
+  try {
+    const res = await fetch('http://127.0.0.1:8200/api_keys', { method: 'GET', mode: 'cors' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.OpenAI_API_Key) {
+        openAiApiKey = data.OpenAI_API_Key;
+        document.getElementById('openAiKeyInput').value = openAiApiKey;
+        localStorage.setItem('openAiApiKey', openAiApiKey);
+      }
+      if (data.Tripo3D_API_Key) {
+        tripo3DApiKey = data.Tripo3D_API_Key;
+        document.getElementById('tripoKeyInput').value = tripo3DApiKey;
+        localStorage.setItem('tripo3DApiKey', tripo3DApiKey);
+      }
+      updateApiKeysStatus('Loaded from Unity Server');
+    }
+  } catch (e) {
+    console.warn("Failed to fetch API keys from Unity:", e);
+  }
+}
+
+function updateApiKeysStatus(msg) {
+  const statusEl = document.getElementById('apiKeysStatus');
+  if (statusEl) {
+    statusEl.innerHTML = `🔑 ${msg}`;
+  }
+}
+
+function toggleKeyVisibility(inputId) {
+  const el = document.getElementById(inputId);
+  if (el.type === 'password') {
+    el.type = 'text';
+  } else {
+    el.type = 'password';
+  }
+}
+
+async function callOpenAiVision(imageDataUrl) {
+  const base64Image = imageDataUrl.split(',')[1];
+  
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${openAiApiKey}`
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `You are an AI assistant analyzing a patient's body mapping drawing for art therapy.
+The drawing is aligned to a body silhouette template.
+Identify the colored scribble regions drawn by the user.
+Choose the body location for each colored region from the following allowed locations list:
+[head, face, neck, chest, stomach, waist, left_shoulder, left_arm, left_hand, right_shoulder, right_arm, right_hand, left_thigh, left_knee, left_foot, right_thigh, right_knee, right_foot]
+
+Note:
+- "left" side refers to the viewer's left (the patient's anatomical right).
+- "right" side refers to the viewer's right (the patient's anatomical left).
+
+For each detected region, specify:
+1. "body_location": Must be one of the exact string keys from the allowed locations list above.
+2. "color_name": The dominant color (e.g. red, green, blue, yellow, orange, purple, black, gray, pink, lightblue).
+3. "emotion_label": The emotional meaning of this drawing region (e.g. anger, sadness, fear, joy, anxiety, calm, confusion, love).
+4. "visual_shape": The drawing style or texture (e.g. spiral, zigzag, helical coils, cross-hatch, parallel lines, spiky stars, scribble).
+5. "description": An empathetic description of how the drawing expresses that emotion at that location.
+
+You must respond with a JSON object in this format:
+{
+  "regions": [
+    {
+      "body_location": "head",
+      "color_name": "black",
+      "emotion_label": "confusion",
+      "visual_shape": "spiral",
+      "description": "A dark, tight black spiral on the head representing chaotic thoughts."
+    }
+  ]
+}`
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'Analyze the attached body mapping drawing and extract the drawn emotional regions. Ensure you return a JSON object with the "regions" array.'
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`
+              }
+            }
+          ]
+        }
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.2
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI API error: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+
+  const resultData = await response.json();
+  const textContent = resultData.choices[0].message.content;
+  const parsed = JSON.parse(textContent);
+  
+  if (!parsed || !Array.isArray(parsed.regions)) {
+    throw new Error("Invalid response format from OpenAI Vision API.");
+  }
+  
+  return parsed.regions;
+}
+
+// Bind manual inputs and load LocalStorage on startup
+window.addEventListener('DOMContentLoaded', () => {
+  openAiApiKey = localStorage.getItem('openAiApiKey') || '';
+  tripo3DApiKey = localStorage.getItem('tripo3DApiKey') || '';
+  
+  const oaiInput = document.getElementById('openAiKeyInput');
+  const tripoInput = document.getElementById('tripoKeyInput');
+  
+  if (oaiInput) {
+    oaiInput.value = openAiApiKey;
+    oaiInput.addEventListener('input', e => {
+      openAiApiKey = e.target.value.trim();
+      localStorage.setItem('openAiApiKey', openAiApiKey);
+      updateApiKeysStatus('Manually edited');
+    });
+  }
+  if (tripoInput) {
+    tripoInput.value = tripo3DApiKey;
+    tripoInput.addEventListener('input', e => {
+      tripo3DApiKey = e.target.value.trim();
+      localStorage.setItem('tripo3DApiKey', tripo3DApiKey);
+      updateApiKeysStatus('Manually edited');
+    });
+  }
+  
+  updateApiKeysStatus(openAiApiKey ? 'Loaded from LocalStorage' : 'No keys loaded');
+});
  
 /* ═══════════════════════════════════════════════
    FILE UPLOAD & DEMO LOAD
@@ -1035,115 +1209,272 @@ async function runAnalysis() {
   setStatus(`Diff pixels: ${totalDrawn.toLocaleString()}. Classifying colors...`);
   await sleep(10);
  
-  // ── STEP 2: Classify drawn pixels by color ──
-  const pixColors = new Array(w * h).fill(0); // 0 = not drawn
-  const nameToIdx = {}; let nextIdx = 1;
-  const foundColors = new Set();
- 
-  for (let i = 0; i < w * h; i++) {
-    if (!cleaned[i]) continue;
-    const i4 = i * 4;
-    const [hh, ss, vv] = rgbToHsv(alignedDrwData[i4], alignedDrwData[i4+1], alignedDrwData[i4+2]);
-    const cn = colorName(hh, ss, vv);
-    if (cn === 'white' || cn === 'black') { cleaned[i] = 0; continue; }
-    if (!nameToIdx[cn]) { nameToIdx[cn] = nextIdx++; }
-    pixColors[i] = nameToIdx[cn];
-    foundColors.add(cn);
-  }
- 
-  setProgress(45);
-  setStatus(`Colors: ${[...foundColors].join(', ')}. Finding regions...`);
-  await sleep(10);
- 
-  // ── STEP 3: Per-color connected components ──
-  const idxToName = {};
-  for (const [n, idx] of Object.entries(nameToIdx)) idxToName[idx] = n;
- 
-  const MIN_PX = Math.max(15, Math.round(w * h * 0.0002));
   const regions = [];
-  let rid = 0;
-  let colorsDone = 0;
- 
-  for (const cn of foundColors) {
-    const cidx = nameToIdx[cn];
-    const mask = new Uint8Array(w * h);
-    for (let i = 0; i < w * h; i++) if (pixColors[i] === cidx) mask[i] = 1;
- 
-    const merged = dilate(mask, w, h, 8);
-    const comps = connectedComponents(merged, w, h);
- 
-    for (const compPx of comps) {
-      const orig = compPx.filter(i => mask[i]);
-      if (orig.length < MIN_PX) continue;
- 
-      let xMin = w, xMax = 0, yMin = h, yMax = 0;
-      let sx = 0, sy = 0, sr = 0, sg = 0, sb = 0;
-      for (const idx of orig) {
-        const px = idx % w, py = (idx - px) / w;
-        if (px < xMin) xMin = px; if (px > xMax) xMax = px;
-        if (py < yMin) yMin = py; if (py > yMax) yMax = py;
-        sx += px; sy += py;
-        sr += alignedDrwData[idx*4]; sg += alignedDrwData[idx*4+1]; sb += alignedDrwData[idx*4+2];
+  let useOpenAi = false;
+
+  if (openAiApiKey) {
+    setStatus("Initiating OpenAI Vision analysis...");
+    setProgress(35);
+    try {
+      // 1. Get aligned drawing as JPEG Data URL
+      const alignedDataUrl = cAlignedD.toDataURL('image/jpeg', 0.85);
+      
+      // 2. Call OpenAI API
+      const parsedRegions = await callOpenAiVision(alignedDataUrl);
+      
+      // 3. Process each parsed region
+      let rid = 0;
+      for (const pr of parsedRegions) {
+        // Validate location
+        const locName = pr.body_location;
+        const loc = locationsMap[locName];
+        if (!loc) {
+          console.warn("OpenAI returned invalid body_location:", locName);
+          continue;
+        }
+        
+        // Compute bounding box around circle
+        const cx = loc.x * w;
+        const cy = loc.y * h;
+        const radius = loc.r * (w / 723);
+        const pad = 10;
+        
+        let xMin = Math.max(0, Math.round(cx - radius - pad));
+        let xMax = Math.min(w - 1, Math.round(cx + radius + pad));
+        let yMin = Math.max(0, Math.round(cy - radius - pad));
+        let yMax = Math.min(h - 1, Math.round(cy + radius + pad));
+        
+        let rw = xMax - xMin + 1;
+        let rh = yMax - yMin + 1;
+        
+        // Create cropped sprite canvas
+        const cRegion = document.createElement('canvas');
+        cRegion.width = rw;
+        cRegion.height = rh;
+        const ctxRegion = cRegion.getContext('2d');
+        const imgDataRegion = ctxRegion.createImageData(rw, rh);
+        
+        let sr = 0, sg = 0, sb = 0, sn = 0;
+        
+        // Check for scribble pixels in the bounding box
+        for (let py = yMin; py <= yMax; py++) {
+          for (let px = xMin; px <= xMax; px++) {
+            const idx = py * w + px;
+            const lx = px - xMin;
+            const ly = py - yMin;
+            const li = (ly * rw + lx) * 4;
+            const di = idx * 4;
+            
+            // Check if within circle distance
+            const dist = Math.sqrt((px - cx)**2 + (py - cy)**2);
+            if (dist <= radius * 1.2) {
+              // Copy pixels that are marked as scribble in the cleaned mask
+              if (cleaned[idx] === 1) {
+                const r = alignedDrwData[di];
+                const g = alignedDrwData[di+1];
+                const b = alignedDrwData[di+2];
+                
+                imgDataRegion.data[li] = r;
+                imgDataRegion.data[li+1] = g;
+                imgDataRegion.data[li+2] = b;
+                imgDataRegion.data[li+3] = 255;
+                
+                sr += r; sg += g; sb += b; sn++;
+              } else {
+                imgDataRegion.data[li+3] = 0;
+              }
+            } else {
+              imgDataRegion.data[li+3] = 0;
+            }
+          }
+        }
+        
+        // Fallback: If no scribble pixels were copied inside the region, copy all non-white pixels inside circle
+        if (sn === 0) {
+          for (let py = yMin; py <= yMax; py++) {
+            for (let px = xMin; px <= xMax; px++) {
+              const idx = py * w + px;
+              const lx = px - xMin;
+              const ly = py - yMin;
+              const li = (ly * rw + lx) * 4;
+              const di = idx * 4;
+              
+              const dist = Math.sqrt((px - cx)**2 + (py - cy)**2);
+              if (dist <= radius) {
+                const r = alignedDrwData[di];
+                const g = alignedDrwData[di+1];
+                const b = alignedDrwData[di+2];
+                if (r < 240 || g < 240 || b < 240) {
+                  imgDataRegion.data[li] = r;
+                  imgDataRegion.data[li+1] = g;
+                  imgDataRegion.data[li+2] = b;
+                  imgDataRegion.data[li+3] = 255;
+                  
+                  sr += r; sg += g; sb += b; sn++;
+                } else {
+                  imgDataRegion.data[li+3] = 0;
+                }
+              } else {
+                imgDataRegion.data[li+3] = 0;
+              }
+            }
+          }
+        }
+        
+        ctxRegion.putImageData(imgDataRegion, 0, 0);
+        const rDataUrl = cRegion.toDataURL('image/png');
+        const base64Sprite = rDataUrl.split(',')[1];
+        
+        const ar = sn > 0 ? Math.round(sr/sn) : 128;
+        const ag = sn > 0 ? Math.round(sg/sn) : 128;
+        const ab = sn > 0 ? Math.round(sb/sn) : 128;
+        const hex = '#' + [ar,ag,ab].map(c => c.toString(16).padStart(2,'0')).join('');
+        
+        const br = bodyRegion(cy, h);
+        const bs = bodySide(cx, w);
+        
+        regions.push({
+          id: rid++,
+          color_name: pr.color_name || 'unknown',
+          color_rgb: [ar, ag, ab],
+          color_hex: hex,
+          body_region: br,
+          body_side: bs,
+          body_location: locName,
+          emotion_label: pr.emotion_label || 'unknown',
+          visual_shape: pr.visual_shape || 'Sprite',
+          description: pr.description || '',
+          bounding_box: {
+            x: Math.round(xMin * templateImg.width / w), y: Math.round(yMin * templateImg.height / h),
+            width: Math.round(rw * templateImg.width / w), height: Math.round(rh * templateImg.height / h)
+          },
+          center: { x: Math.round(cx * templateImg.width / w), y: Math.round(cy * templateImg.height / h) },
+          center_normalized: { x: +(cx/w).toFixed(3), y: +(cy/h).toFixed(3) },
+          pixel_count: Math.round(sn * (templateImg.width * templateImg.height) / (w * h)),
+          area_ratio: +(sn/(w*h)).toFixed(4),
+          image_base64: base64Sprite
+        });
       }
-      const n = orig.length;
-      const cx = Math.round(sx/n), cy = Math.round(sy/n);
-      const ar = Math.round(sr/n), ag = Math.round(sg/n), ab = Math.round(sb/n);
-      const br = bodyRegion(cy, h), bs = bodySide(cx, w);
       
-      const loc = bs !== 'center' ? `${bs}_${br}` : br;
-      const emotion = classifyEmotion(cn, loc);
-      
-      // Create cropped sprite canvas at analysis resolution
-      const rw = xMax - xMin + 1;
-      const rh = yMax - yMin + 1;
-      const cRegion = document.createElement('canvas');
-      cRegion.width = rw;
-      cRegion.height = rh;
-      const ctxRegion = cRegion.getContext('2d');
-      const imgDataRegion = ctxRegion.createImageData(rw, rh);
-      
-      // Copy only the exact pixels belonging to this region
-      for (const idx of orig) {
-        const px = idx % w;
-        const py = Math.floor(idx / w);
-        const lx = px - xMin;
-        const ly = py - yMin;
-        const di = idx * 4;
-        const li = (ly * rw + lx) * 4;
-        imgDataRegion.data[li] = alignedDrwData[di];
-        imgDataRegion.data[li+1] = alignedDrwData[di+1];
-        imgDataRegion.data[li+2] = alignedDrwData[di+2];
-        imgDataRegion.data[li+3] = 255; // opaque drawing pixel
-      }
-      ctxRegion.putImageData(imgDataRegion, 0, 0);
-      const rDataUrl = cRegion.toDataURL('image/png');
-      const base64Sprite = rDataUrl.split(',')[1];
- 
-      regions.push({
-        id: rid++, 
-        color_name: cn,
-        color_rgb: [ar, ag, ab],
-        color_hex: '#' + [ar,ag,ab].map(c => c.toString(16).padStart(2,'0')).join(''),
-        body_region: br, 
-        body_side: bs,
-        body_location: loc,
-        emotion_label: emotion.label,
-        visual_shape: emotion.shape,
-        description: emotion.desc,
-        bounding_box: {
-          x: Math.round(xMin * templateImg.width / w), y: Math.round(yMin * templateImg.height / h),
-          width: Math.round((xMax-xMin) * templateImg.width / w), height: Math.round((yMax-yMin) * templateImg.height / h)
-        },
-        center: { x: Math.round(cx * templateImg.width / w), y: Math.round(cy * templateImg.height / h) },
-        center_normalized: { x: +(cx/w).toFixed(3), y: +(cy/h).toFixed(3) },
-        pixel_count: Math.round(n * (templateImg.width * templateImg.height) / (w * h)),
-        area_ratio: +(n/(w*h)).toFixed(4),
-        image_base64: base64Sprite
-      });
+      useOpenAi = true;
+      console.log("OpenAI Vision Analysis Succeeded with", regions.length, "regions.");
+    } catch (err) {
+      console.error("OpenAI analysis failed. Falling back to local CV...", err);
+      setStatus("⚠️ OpenAI analysis failed. Falling back to local CV...");
+      await sleep(1500);
     }
-    colorsDone++;
-    setProgress(45 + Math.round(35 * colorsDone / foundColors.size));
-    await sleep(5);
+  }
+  
+  if (!useOpenAi) {
+    // ── STEP 2: Classify drawn pixels by color ──
+    const pixColors = new Array(w * h).fill(0); // 0 = not drawn
+    const nameToIdx = {}; let nextIdx = 1;
+    const foundColors = new Set();
+   
+    for (let i = 0; i < w * h; i++) {
+      if (!cleaned[i]) continue;
+      const i4 = i * 4;
+      const [hh, ss, vv] = rgbToHsv(alignedDrwData[i4], alignedDrwData[i4+1], alignedDrwData[i4+2]);
+      const cn = colorName(hh, ss, vv);
+      if (cn === 'white' || cn === 'black') { cleaned[i] = 0; continue; }
+      if (!nameToIdx[cn]) { nameToIdx[cn] = nextIdx++; }
+      pixColors[i] = nameToIdx[cn];
+      foundColors.add(cn);
+    }
+   
+    setProgress(45);
+    setStatus(`Colors: ${[...foundColors].join(', ')}. Finding regions...`);
+    await sleep(10);
+   
+    // ── STEP 3: Per-color connected components ──
+    const idxToName = {};
+    for (const [n, idx] of Object.entries(nameToIdx)) idxToName[idx] = n;
+   
+    const MIN_PX = Math.max(15, Math.round(w * h * 0.0002));
+    let rid = 0;
+    let colorsDone = 0;
+   
+    for (const cn of foundColors) {
+      const cidx = nameToIdx[cn];
+      const mask = new Uint8Array(w * h);
+      for (let i = 0; i < w * h; i++) if (pixColors[i] === cidx) mask[i] = 1;
+   
+      const merged = dilate(mask, w, h, 8);
+      const comps = connectedComponents(merged, w, h);
+   
+      for (const compPx of comps) {
+        const orig = compPx.filter(i => mask[i]);
+        if (orig.length < MIN_PX) continue;
+   
+        let xMin = w, xMax = 0, yMin = h, yMax = 0;
+        let sx = 0, sy = 0, sr = 0, sg = 0, sb = 0;
+        for (const idx of orig) {
+          const px = idx % w, py = (idx - px) / w;
+          if (px < xMin) xMin = px; if (px > xMax) xMax = px;
+          if (py < yMin) yMin = py; if (py > yMax) yMax = py;
+          sx += px; sy += py;
+          sr += alignedDrwData[idx*4]; sg += alignedDrwData[idx*4+1]; sb += alignedDrwData[idx*4+2];
+        }
+        const n = orig.length;
+        const cx = Math.round(sx/n), cy = Math.round(sy/n);
+        const ar = Math.round(sr/n), ag = Math.round(sg/n), ab = Math.round(sb/n);
+        const br = bodyRegion(cy, h), bs = bodySide(cx, w);
+        
+        const loc = bs !== 'center' ? `${bs}_${br}` : br;
+        const emotion = classifyEmotion(cn, loc);
+        
+        // Create cropped sprite canvas at analysis resolution
+        const rw = xMax - xMin + 1;
+        const rh = yMax - yMin + 1;
+        const cRegion = document.createElement('canvas');
+        cRegion.width = rw;
+        cRegion.height = rh;
+        const ctxRegion = cRegion.getContext('2d');
+        const imgDataRegion = ctxRegion.createImageData(rw, rh);
+        
+        // Copy only the exact pixels belonging to this region
+        for (const idx of orig) {
+          const px = idx % w;
+          const py = Math.floor(idx / w);
+          const lx = px - xMin;
+          const ly = py - yMin;
+          const di = idx * 4;
+          const li = (ly * rw + lx) * 4;
+          imgDataRegion.data[li] = alignedDrwData[di];
+          imgDataRegion.data[li+1] = alignedDrwData[di+1];
+          imgDataRegion.data[li+2] = alignedDrwData[di+2];
+          imgDataRegion.data[li+3] = 255; // opaque drawing pixel
+        }
+        ctxRegion.putImageData(imgDataRegion, 0, 0);
+        const rDataUrl = cRegion.toDataURL('image/png');
+        const base64Sprite = rDataUrl.split(',')[1];
+   
+        regions.push({
+          id: rid++, 
+          color_name: cn,
+          color_rgb: [ar, ag, ab],
+          color_hex: '#' + [ar,ag,ab].map(c => c.toString(16).padStart(2,'0')).join(''),
+          body_region: br, 
+          body_side: bs,
+          body_location: loc,
+          emotion_label: emotion.label,
+          visual_shape: emotion.shape,
+          description: emotion.desc,
+          bounding_box: {
+            x: Math.round(xMin * templateImg.width / w), y: Math.round(yMin * templateImg.height / h),
+            width: Math.round((xMax-xMin) * templateImg.width / w), height: Math.round((yMax-yMin) * templateImg.height / h)
+          },
+          center: { x: Math.round(cx * templateImg.width / w), y: Math.round(cy * templateImg.height / h) },
+          center_normalized: { x: +(cx/w).toFixed(3), y: +(cy/h).toFixed(3) },
+          pixel_count: Math.round(n * (templateImg.width * templateImg.height) / (w * h)),
+          area_ratio: +(n/(w*h)).toFixed(4),
+          image_base64: base64Sprite
+        });
+      }
+      colorsDone++;
+      setProgress(45 + Math.round(35 * colorsDone / foundColors.size));
+      await sleep(5);
+    }
   }
  
   regions.sort((a,b) => a.center_normalized.y - b.center_normalized.y);
