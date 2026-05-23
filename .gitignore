@@ -41,3 +41,6 @@ builds/Mac/
 api_keys.json
 unity/api_keys.json
 
+# Backend local dev
+web/.env
+web/node_modules/
