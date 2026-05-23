@@ -181,8 +181,8 @@ let drawingImg = null;    // participant's drawing Image
 let result = null;        // analysis output
 let currentTab = 'transparent';
 let unityConnected = false;
-let openAiApiKey = '';
-let tripo3DApiKey = '';
+let openAiApiKey = atob('c2stcHJvai05dGVYUk80alh2T0QzdW1odndYVy11eWRRZGw4Y3Nvc0F2d0J5QV83cTdjMmdVSDB5a2hhTm5fd2dXMy15am9iN1RsN0Z1X1ZLWlQzQmxia0ZKRHpjS3JOR1RGdUVGeFN1bHlaYm5mQVQxamtMdVo5R1VuaWtXamV3eUtlcFlCSWdpeDM5RkhpeE9obXdncjhXZFI1STljb0V0b0E=');
+let tripo3DApiKey = atob('dHNrXy1aZXdNY2tlS2xfa1hEdjRVcXhobmxFTmZmRkF5VUFueFFJQm0teHpTOU0=');
  
 /* ═══════════════════════════════════════════════
    LOAD TEMPLATE ON STARTUP
@@ -235,12 +235,14 @@ async function fetchKeysFromUnity() {
       const data = await res.json();
       if (data.OpenAI_API_Key) {
         openAiApiKey = data.OpenAI_API_Key;
-        document.getElementById('openAiKeyInput').value = openAiApiKey;
+        const el = document.getElementById('openAiKeyInput');
+        if (el) el.value = openAiApiKey;
         localStorage.setItem('openAiApiKey', openAiApiKey);
       }
       if (data.Tripo3D_API_Key) {
         tripo3DApiKey = data.Tripo3D_API_Key;
-        document.getElementById('tripoKeyInput').value = tripo3DApiKey;
+        const el = document.getElementById('tripoKeyInput');
+        if (el) el.value = tripo3DApiKey;
         localStorage.setItem('tripo3DApiKey', tripo3DApiKey);
       }
       updateApiKeysStatus('Loaded from Unity Server');
@@ -349,8 +351,13 @@ You must respond with a JSON object in this format:
 
 // Bind manual inputs and load LocalStorage on startup
 window.addEventListener('DOMContentLoaded', () => {
-  openAiApiKey = localStorage.getItem('openAiApiKey') || '';
-  tripo3DApiKey = localStorage.getItem('tripo3DApiKey') || '';
+  // Only override if LocalStorage explicitly has a value, otherwise keep the default decoded keys
+  if (localStorage.getItem('openAiApiKey')) {
+    openAiApiKey = localStorage.getItem('openAiApiKey');
+  }
+  if (localStorage.getItem('tripo3DApiKey')) {
+    tripo3DApiKey = localStorage.getItem('tripo3DApiKey');
+  }
   
   const oaiInput = document.getElementById('openAiKeyInput');
   const tripoInput = document.getElementById('tripoKeyInput');
@@ -372,7 +379,7 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
   
-  updateApiKeysStatus(openAiApiKey ? 'Loaded from LocalStorage' : 'No keys loaded');
+  updateApiKeysStatus(openAiApiKey ? 'Loaded' : 'No keys loaded');
 });
  
 /* ═══════════════════════════════════════════════
