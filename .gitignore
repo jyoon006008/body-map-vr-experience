@@ -37,3 +37,7 @@ Thumbs.db
 builds/Windows/
 builds/Mac/
 
+# Exclude sensitive API key JSON files
+api_keys.json
+unity/api_keys.json
+

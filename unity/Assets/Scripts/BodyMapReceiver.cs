@@ -148,6 +148,7 @@ public class BodyMapReceiver : MonoBehaviour
 
         CreateEditModeUI();
         CreateAimDotUI();
+        gameObject.AddComponent<BodyMapAIController>();
         StartServer();
     }
 
@@ -985,7 +986,7 @@ public class BodyMapReceiver : MonoBehaviour
         instantiatedShapes.Clear();
     }
 
-    private InteractiveRegion3D selectedRegionNormal = null;
+    public InteractiveRegion3D selectedRegionNormal = null;
 
     public void DeselectActiveRegion()
     {
