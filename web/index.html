@@ -1295,327 +1295,17 @@ async function runAnalysis() {
   
   let regions = (aiData.regions || []).map((r, idx) => ({ ...r, id: idx }));
 
-  // Color mappings for fallback regions
-  const cNameMap = {
-    black: '검정색', red: '빨간색', blue: '파란색', yellow: '노란색', green: '초록색', purple: '보라색', orange: '주황색',
-    cyan: '청록색', pink: '분홍색', brown: '갈색', lime: '연두색', navy: '남색', gray: '회색', mixed_unknown: '혼합색'
-  };
-  const partKorMap = {
-    head: '머리', face: '얼굴', neck: '목', chest: '가슴', stomach: '배', waist: '허리',
-    left_shoulder: '왼쪽 어깨', left_arm: '왼쪽 팔', left_hand: '왼쪽 손',
-    right_shoulder: '오른쪽 어깨', right_arm: '오른쪽 팔', right_hand: '오른쪽 손',
-    left_thigh: '왼쪽 허벅지', left_knee: '왼쪽 무릎', left_shin: '왼쪽 정강이', left_foot: '왼쪽 발',
-    right_thigh: '오른쪽 허벅지', right_knee: '오른쪽 무릎', right_shin: '오른쪽 정강이', right_foot: '오른쪽 발',
-    upper_legs: '허벅지', lower_legs: '종아리', feet: '발'
-  };
-  const emotionKorMap = {
-    numbness: '무감각/우울', calm: '평온/안정', anger: '분노/스트레스', sadness: '슬픔/우울',
-    stress: '긴장/스트레스', energy: '에너지/활력', tension: '불안/긴장', confusion: '혼란/불안',
-    love: '사랑/온기', warmth: '온기', pain: '통증/상처'
-  };
-
-  const clusters = [
-    { name: 'black', check: (h, s, v) => s < 35 && v < 90, color_hex: '#2E2E2E', emotion: 'numbness', pattern: 'spiral' },
-    { name: 'green_cyan', check: (h, s, v) => h >= 35 && h < 100 && s > 35 && v < 245, color_hex: '#34C759', emotion: 'calm', pattern: 'helical_coil' },
-    { name: 'red', check: (h, s, v) => (h < 10 || h >= 155) && s > 35 && v < 245, color_hex: '#FF3B30', emotion: 'anger', pattern: 'scribble' },
-    { name: 'blue', check: (h, s, v) => h >= 100 && h < 130 && s > 35 && v < 245, color_hex: '#007AFF', emotion: 'sadness', pattern: 'cross_hatch' },
-    { name: 'orange_brown', check: (h, s, v) => h >= 10 && h < 22 && s > 35 && v < 245, color_hex: '#FF9500', emotion: 'stress', pattern: 'zigzag' },
-    { name: 'yellow', check: (h, s, v) => h >= 22 && h < 35 && s > 35 && v < 245, color_hex: '#FFCC00', emotion: 'energy', pattern: 'parallel_lines' },
-    { name: 'purple', check: (h, s, v) => h >= 130 && h < 155 && s > 35 && v < 245, color_hex: '#5856D6', emotion: 'tension', pattern: 'helical_coil' },
-    { name: 'pink', check: (h, s, v) => (h < 10 || h >= 150) && (s < 120 || v > 200) && s > 35 && v < 245, color_hex: '#FF2D55', emotion: 'love', pattern: 'scribble' },
-    { name: 'brown', check: (h, s, v) => h >= 10 && h < 22 && v < 130 && s > 35 && v < 245, color_hex: '#A25A38', emotion: 'pain', pattern: 'zigzag' },
-    { name: 'lime', check: (h, s, v) => ((h >= 35 && h < 48) || (h >= 48 && h < 60 && s > 150)) && s > 35 && v < 245, color_hex: '#A4C639', emotion: 'energy', pattern: 'parallel_lines' },
-    { name: 'navy', check: (h, s, v) => h >= 100 && h < 130 && v < 100 && s > 35 && v < 245, color_hex: '#000080', emotion: 'sadness', pattern: 'cross_hatch' },
-    { name: 'gray', check: (h, s, v) => s < 20 && v >= 90 && v < 120, color_hex: '#8E8E93', emotion: 'numbness', pattern: 'parallel_lines' },
-    { name: 'mixed_unknown', check: (h, s, v) => s < 40 && !(s < 35 && v < 90) && !(s < 20 && v >= 90 && v < 120), color_hex: '#808080', emotion: 'confusion', pattern: 'scribble' }
-  ];
-
-  // 2a. Reconstruct missing bboxes returned by OpenAI
-  for (const r of regions) {
-    if (!r.bbox || typeof r.bbox.x !== 'number' || typeof r.bbox.y !== 'number' || typeof r.bbox.width !== 'number' || typeof r.bbox.height !== 'number') {
-      const colName = (r.color_name || 'unknown').toLowerCase();
-      const cluster = clusters.find(c => {
-        if (c.name === colName) return true;
-        if (c.name === 'green_cyan' && (colName === 'green' || colName === 'cyan')) return true;
-        if (c.name === 'orange_brown' && (colName === 'orange' || colName === 'brown')) return true;
-        return false;
-      });
-      if (cluster) {
-        const mask = new Uint8Array(workW * workH);
-        for (let i = 0; i < workW * workH; i++) {
-          const i4 = i * 4;
-          const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
-          if (tplR < 235 || tplG < 235 || tplB < 235) continue;
-          const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
-          const [hVal, sVal, vVal] = rgbToHsv(pr, pg, pb);
-          if (cluster.check(hVal, sVal, vVal)) {
-            mask[i] = 1;
-          }
-        }
-        const comps = connectedComponents(mask, workW, workH);
-        if (comps.length > 0) {
-          let largestComp = comps[0];
-          for (const comp of comps) {
-            if (comp.length > largestComp.length) largestComp = comp;
-          }
-          let minX = workW, maxX = 0, minY = workH, maxY = 0;
-          for (const idx of largestComp) {
-            const cx = idx % workW;
-            const cy = Math.floor(idx / workW);
-            if (cx < minX) minX = cx;
-            if (cx > maxX) maxX = cx;
-            if (cy < minY) minY = cy;
-            if (cy > maxY) maxY = cy;
-          }
-          r.bbox = {
-            x: minX / workW,
-            y: minY / workH,
-            width: (maxX - minX + 1) / workW,
-            height: (maxY - minY + 1) / workH
-          };
-          console.log(`[analysis] Reconstructed missing bbox for region #${r.id} (${r.color_name})`);
-        }
-      }
-    }
-  }
-
-  // 2b. Compute coverage of stroke pixels inside OpenAI raw bboxes (Inside silhouette constraint)
-  let totalStrokePixels = 0;
-  let openaiStrokePixels = 0;
-  const inOpenaiBbox = new Uint8Array(workW * workH);
-  for (const r of regions) {
-    if (r.bbox) {
-      const bx = Math.round(r.bbox.x * workW);
-      const by = Math.round(r.bbox.y * workH);
-      const bw = Math.round(r.bbox.width * workW);
-      const bh = Math.round(r.bbox.height * workH);
-      const x1 = Math.max(0, bx), y1 = Math.max(0, by);
-      const x2 = Math.min(workW - 1, bx + bw), y2 = Math.min(workH - 1, by + bh);
-      for (let y = y1; y <= y2; y++) {
-        for (let x = x1; x <= x2; x++) {
-          inOpenaiBbox[y * workW + x] = 1;
-        }
-      }
-    }
-  }
-
-  for (let i = 0; i < workW * workH; i++) {
-    const i4 = i * 4;
-    const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
-    const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
-    if (outsideMask[i] === 0 && isStrokePixel(pr, pg, pb, tplR, tplG, tplB)) {
-      totalStrokePixels++;
-      if (inOpenaiBbox[i]) {
-        openaiStrokePixels++;
-      }
-    }
-  }
-
-  const coverage = totalStrokePixels > 0 ? (openaiStrokePixels / totalStrokePixels) : 1.0;
-  const coverageThreshold = totalStrokePixels < 5000 ? 0.75 : 0.85;
-  console.log(`[analysis] Stroke coverage inside OpenAI bboxes: ${coverage.toFixed(3)} (Threshold: ${coverageThreshold})`);
-
-  // 2c. Run fallback color segmentation if coverage is low
-  if (coverage < coverageThreshold) {
-    console.log(`[analysis] Coverage is low. Executing fallback local color segmentation…`);
-    const closeDist = Math.max(workW * 0.025, 25);
-    const candidateRegions = [];
-
-    for (const cluster of clusters) {
-      const mask = new Uint8Array(workW * workH);
-      for (let y = 0; y < workH; y++) {
-        for (let x = 0; x < workW; x++) {
-          const i = y * workW + x;
-          const i4 = i * 4;
-          const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
-          if (tplR < 235 || tplG < 235 || tplB < 235) continue;
-          const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
-          const [hVal, sVal, vVal] = rgbToHsv(pr, pg, pb);
-          if (cluster.check(hVal, sVal, vVal)) {
-            mask[i] = 1;
-          }
-        }
-      }
-
-      const comps = connectedComponents(mask, workW, workH);
-      const colorCandidates = [];
-
-      for (const comp of comps) {
-        if (comp.length < 40) continue; // Noise filter
-
-        // mixed_unknown constraint
-        if (cluster.name === 'mixed_unknown') {
-          if (comp.length <= 80) continue;
-          let insideCount = 0;
-          for (const idx of comp) {
-            if (outsideMask[idx] === 0) insideCount++;
-          }
-          if (insideCount / comp.length <= 0.85) continue;
-        }
-
-        let minX = workW, maxX = 0, minY = workH, maxY = 0;
-        let sumH = 0;
-        for (const idx of comp) {
-          const cx = idx % workW;
-          const cy = Math.floor(idx / workW);
-          if (cx < minX) minX = cx;
-          if (cx > maxX) maxX = cx;
-          if (cy < minY) minY = cy;
-          if (cy > maxY) maxY = cy;
-          const i4 = idx * 4;
-          const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
-          const [hVal] = rgbToHsv(pr, pg, pb);
-          sumH += hVal;
-        }
-        colorCandidates.push({
-          pixels: comp,
-          avgHue: sumH / comp.length,
-          box: { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 }
-        });
-      }
-
-      // Merge candidates of the same color based on proximity (closeDist & centerDistance)
-      let mergedAny = true;
-      while (mergedAny) {
-        mergedAny = false;
-        for (let i = 0; i < colorCandidates.length; i++) {
-          for (let j = i + 1; j < colorCandidates.length; j++) {
-            const b1 = colorCandidates[i].box;
-            const b2 = colorCandidates[j].box;
-            const cx1 = b1.x + b1.width / 2;
-            const cy1 = b1.y + b1.height / 2;
-            const cx2 = b2.x + b2.width / 2;
-            const cy2 = b2.y + b2.height / 2;
-            const centerDistance = Math.sqrt((cx1 - cx2) * (cx1 - cx2) + (cy1 - cy2) * (cy1 - cy2));
-            const minDim = Math.min(b1.width, b1.height);
-
-            if (areBoxesClose(b1, b2, closeDist) && centerDistance < minDim) {
-              colorCandidates[i].pixels = colorCandidates[i].pixels.concat(colorCandidates[j].pixels);
-              let minX = workW, maxX = 0, minY = workH, maxY = 0;
-              for (const idx of colorCandidates[i].pixels) {
-                const cx = idx % workW;
-                const cy = Math.floor(idx / workW);
-                if (cx < minX) minX = cx;
-                if (cx > maxX) maxX = cx;
-                if (cy < minY) minY = cy;
-                if (cy > maxY) maxY = cy;
-              }
-              colorCandidates[i].box = { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
-              colorCandidates.splice(j, 1);
-              mergedAny = true;
-              break;
-            }
-          }
-          if (mergedAny) break;
-        }
-      }
-
-      // Push to general candidate list
-      for (const cand of colorCandidates) {
-        let finalColorName = cluster.name;
-        let finalColorHex = cluster.color_hex;
-        let finalEmotion = cluster.emotion;
-        let finalPattern = cluster.pattern;
-
-        if (finalColorName === 'green_cyan') {
-          if (cand.avgHue >= 78) {
-            finalColorName = 'cyan';
-            finalColorHex = '#5AC8FA';
-            finalEmotion = 'confusion';
-            finalPattern = 'spiky_stars';
-          } else {
-            finalColorName = 'green';
-            finalColorHex = '#34C759';
-            finalEmotion = 'calm';
-            finalPattern = 'helical_coil';
-          }
-        } else if (finalColorName === 'orange_brown') {
-          if (cand.avgHue < 22 && cand.avgHue >= 10 && cand.box.width * cand.box.height > 0) {
-            let sumV = 0;
-            for (const idx of cand.pixels) {
-              const pr = alignedDrwData[idx * 4], pg = alignedDrwData[idx * 4 + 1], pb = alignedDrwData[idx * 4 + 2];
-              const [, , vVal] = rgbToHsv(pr, pg, pb);
-              sumV += vVal;
-            }
-            const avgV = sumV / cand.pixels.length;
-            if (avgV < 130) {
-              finalColorName = 'brown';
-              finalColorHex = '#A25A38';
-              finalEmotion = 'pain';
-              finalPattern = 'zigzag';
-            } else {
-              finalColorName = 'orange';
-              finalColorHex = '#FF9500';
-              finalEmotion = 'stress';
-              finalPattern = 'zigzag';
-            }
-          }
-        }
-
-        candidateRegions.push({
-          color_name: finalColorName,
-          color_hex: finalColorHex,
-          emotion_label: finalEmotion,
-          pattern: finalPattern,
-          box: cand.box,
-          pixels: cand.pixels
-        });
-      }
-    }
-
-    // Match candidate regions vs OpenAI regions using IoU
-    for (const cand of candidateRegions) {
-      let maxIoU = 0;
-      const cBoxNorm = {
-        x: cand.box.x / workW,
-        y: cand.box.y / workH,
-        width: cand.box.width / workW,
-        height: cand.box.height / workH
-      };
-      for (const reg of regions) {
-        if (reg.bbox) {
-          const iou = getIoU(cBoxNorm, reg.bbox);
-          if (iou > maxIoU) maxIoU = iou;
-        }
-      }
-
-      if (maxIoU < 0.20) {
-        const cx = cand.box.x + cand.box.width / 2;
-        const cy = cand.box.y + cand.box.height / 2;
-        const bodyPart = bodyRegion(cy, workH);
-        const side = bodySide(cx, workW);
-
-        const cKor = cNameMap[cand.color_name] || cand.color_name;
-        const partKor = partKorMap[bodyPart] || bodyPart;
-        const emoKor = emotionKorMap[cand.emotion_label] || cand.emotion_label;
-
-        const newReg = {
-          id: regions.length,
-          body_part: bodyPart,
-          side: side,
-          color_name: cand.color_name,
-          color_hex: cand.color_hex,
-          pattern: cand.pattern,
-          emotion_label: cand.emotion_label,
-          bbox: cBoxNorm,
-          description: `- 색: ${cKor} (감정: ${emoKor})\n- 패턴: ${cand.pattern}\n- 위치: ${partKor}\n- 특징: 로컬 색상 분석을 통해 감지된 영역입니다.`
-        };
-        regions.push(newReg);
-        console.log(`[analysis] Added fallback region #${newReg.id} (${newReg.color_name})`);
-      }
-    }
-  }
-
   setProgress(55);
   setStatus(`Processing regions. Rendering…`);
   await sleep(10);
 
-  /* ── Phase 3 Prep: Connected component tight bbox refinement ── */
-  const refinedRegions = [];
-  const closeDist = Math.max(workW * 0.025, 25);
-
-  for (const r of regions) {
+  /* ── Phase 3 Prep: Local CV refinement inside OpenAI bboxes ── */
+  const finalRegions = [];
+  
+  for (let i = 0; i < regions.length; i++) {
+    const r = regions[i];
     if (!r.bbox) continue;
+
     const bx_raw = Math.round(r.bbox.x * workW);
     const by_raw = Math.round(r.bbox.y * workH);
     const bw_raw = Math.round(r.bbox.width * workW);
@@ -1648,126 +1338,69 @@ async function runAnalysis() {
     }
 
     const comps = connectedComponents(localMask, winW, winH);
-    console.debug(`[refinement] Rough bbox #${r.id} (${r.color_name}) contains ${comps.length} components.`);
+    const regionPixels = [];
 
     for (const comp of comps) {
-      if (comp.length < 80) {
-        console.debug(`[refinement] Component size ${comp.length} < 80px, ignoring.`);
-        continue;
-      }
-
-      // Convert local component pixels to global index list
-      const globalPixels = [];
-      let minCompX = winW, maxCompX = 0, minCompY = winH, maxCompY = 0;
+      if (comp.length < 80) continue;
       for (const idx of comp) {
         const cx = idx % winW;
         const cy = Math.floor(idx / winW);
-        if (cx < minCompX) minCompX = cx;
-        if (cx > maxCompX) maxCompX = cx;
-        if (cy < minCompY) minCompY = cy;
-        if (cy > maxCompY) maxCompY = cy;
-        globalPixels.push((y1 + cy) * workW + (x1 + cx));
+        regionPixels.push((y1 + cy) * workW + (x1 + cx));
       }
-
-      const globalBX = x1 + minCompX;
-      const globalBY = y1 + minCompY;
-      const globalBW = maxCompX - minCompX + 1;
-      const globalBH = maxCompY - minCompY + 1;
-
-      const refinedReg = {
-        ...r,
-        id: refinedRegions.length,
-        pixels: globalPixels,
-        bbox: {
-          x: globalBX / workW,
-          y: globalBY / workH,
-          width: globalBW / workW,
-          height: globalBH / workH
-        }
-      };
-      refinedRegions.push(refinedReg);
     }
-  }
 
-  // Deduplicate and Merge overlapping/close regions of the same color (pixel mask union)
-  let mergedAny = true;
-  while (mergedAny) {
-    mergedAny = false;
-    for (let i = 0; i < refinedRegions.length; i++) {
-      for (let j = i + 1; j < refinedRegions.length; j++) {
-        const r1 = refinedRegions[i];
-        const r2 = refinedRegions[j];
-        if (r1.color_name === r2.color_name) {
-          const box1 = {
-            x: r1.bbox.x * workW,
-            y: r1.bbox.y * workH,
-            width: r1.bbox.width * workW,
-            height: r1.bbox.height * workH
-          };
-          const box2 = {
-            x: r2.bbox.x * workW,
-            y: r2.bbox.y * workH,
-            width: r2.bbox.width * workW,
-            height: r2.bbox.height * workH
-          };
-          
-          const distanceBetweenBoxes = getBoxDistance(box1, box2);
-          const overlapRatio = getOverlapRatio(box1, box2);
-
-          if (distanceBetweenBoxes < 40 || overlapRatio > 0.15) {
-            // Merge pixels list (Pixel-level mask union)
-            r1.pixels = r1.pixels.concat(r2.pixels);
-            
-            // Recalculate tight boundary on merged pixels
-            let minX = workW, maxX = 0, minY = workH, maxY = 0;
-            for (const idx of r1.pixels) {
-              const cx = idx % workW;
-              const cy = Math.floor(idx / workW);
-              if (cx < minX) minX = cx;
-              if (cx > maxX) maxX = cx;
-              if (cy < minY) minY = cy;
-              if (cy > maxY) maxY = cy;
-            }
-
-            // Dilated bounding box: 3px padding
-            const finalX = Math.max(0, minX - 3);
-            const finalY = Math.max(0, minY - 3);
-            const finalW = Math.min(workW - 1, maxX + 3) - finalX + 1;
-            const finalH = Math.min(workH - 1, maxY + 3) - finalY + 1;
-
-            r1.bbox = {
-              x: finalX / workW,
-              y: finalY / workH,
-              width: finalW / workW,
-              height: finalH / workH
-            };
-            refinedRegions.splice(j, 1);
-            mergedAny = true;
-            break;
+    // Fallback if no components are >= 80px: collect all stroke pixels in the window
+    if (regionPixels.length === 0) {
+      for (let py = 0; py < winH; py++) {
+        for (let px = 0; px < winW; px++) {
+          if (localMask[py * winW + px] === 1) {
+            regionPixels.push((y1 + py) * workW + (x1 + px));
           }
         }
       }
-      if (mergedAny) break;
     }
-  }
 
-  // Filter out noise and mixed_unknown regions
-  const finalRegions = [];
-  for (const r of refinedRegions) {
-    if (r.color_name === 'mixed_unknown') continue;
+    if (regionPixels.length > 0) {
+      // Recalculate tight boundary on refined pixels
+      let minX = workW, maxX = 0, minY = workH, maxY = 0;
+      for (const idx of regionPixels) {
+        const cx = idx % workW;
+        const cy = Math.floor(idx / workW);
+        if (cx < minX) minX = cx;
+        if (cx > maxX) maxX = cx;
+        if (cy < minY) minY = cy;
+        if (cy > maxY) maxY = cy;
+      }
 
-    const strokeArea = r.pixels.length;
-    const bw = Math.round(r.bbox.width * workW);
-    const bh = Math.round(r.bbox.height * workH);
-    const bboxArea = bw * bh;
-    const strokeDensity = strokeArea / bboxArea;
-    const expansionRatio = bboxArea / strokeArea;
+      // Dilated bounding box: 3px padding
+      const finalX = Math.max(0, minX - 3);
+      const finalY = Math.max(0, minY - 3);
+      const finalW = Math.min(workW - 1, maxX + 3) - finalX + 1;
+      const finalH = Math.min(workH - 1, maxY + 3) - finalY + 1;
 
-    if (strokeArea < 1500 || expansionRatio > 8 || strokeDensity < 0.12) {
-      console.log(`[refinement] Ignored noise region #${r.id} (${r.color_name}): area=${strokeArea}px, ratio=${expansionRatio.toFixed(2)}, density=${strokeDensity.toFixed(2)}`);
-      continue;
+      r.bbox = {
+        x: finalX / workW,
+        y: finalY / workH,
+        width: finalW / workW,
+        height: finalH / workH
+      };
+      r.pixels = regionPixels;
+
+      // Noise filtering
+      const strokeArea = r.pixels.length;
+      const bboxArea = finalW * finalH;
+      const strokeDensity = strokeArea / bboxArea;
+      const expansionRatio = bboxArea / strokeArea;
+
+      if (strokeArea < 1500 || expansionRatio > 8 || strokeDensity < 0.12) {
+        console.log(`[refinement] Ignored noise region #${r.id} (${r.color}): area=${strokeArea}px, ratio=${expansionRatio.toFixed(2)}, density=${strokeDensity.toFixed(2)}`);
+        continue;
+      }
+
+      finalRegions.push(r);
+    } else {
+      console.log(`[refinement] Ignored region #${r.id} (${r.color}) because no stroke pixels were found in the bbox.`);
     }
-    finalRegions.push(r);
   }
 
   // Re-index final regions
@@ -1776,7 +1409,7 @@ async function runAnalysis() {
   });
 
   regions = finalRegions;
-  console.log(`[refinement] Final semantic regions count: ${regions.length}`);
+  console.log(`[refinement] Final refined semantic regions count: ${regions.length}`);
 
   /* ── Phase 3: Process each region (sprite extraction using pixelSet) ── */
   for (const r of regions) {
