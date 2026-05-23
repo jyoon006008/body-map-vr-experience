@@ -272,230 +272,341 @@ function loadDemoImage() {
   // 1. Draw the slender silhouette template background
   ctx.drawImage(templateImg, 0, 0);
   
-  // Helper function to draw organic human-like scribble/painting texture at a specific node
-  function drawScribble(ctx, px, py, radius, color) {
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    
-    // Choose randomly between zigzag crayon filling, coiled spiral loops, or cross-hatching pencil lines
-    const style = Math.floor(Math.random() * 3);
-    const loops = 14 + Math.floor(Math.random() * 12);
-    
-    if (style === 0) {
-      // 1. Zigzag Crayon Coloring: dense back and forth diagonal/horizontal scribbling
-      ctx.lineWidth = 3.0 + Math.random() * 3.0;
-      ctx.globalAlpha = 0.6 + Math.random() * 0.3;
-      ctx.beginPath();
-      
-      const angle = Math.random() * Math.PI * 2;
-      let lx = px + Math.cos(angle) * radius;
-      let ly = py + Math.sin(angle) * radius;
-      ctx.moveTo(lx, ly);
-      
-      for (let i = 0; i < loops * 2; i++) {
-        const ratio = i / (loops * 2);
-        const side = i % 2 === 0 ? 1 : -1;
-        const perpAngle = angle + Math.PI / 2;
-        const distSide = radius * side * (0.85 + Math.random() * 0.35);
-        const distForward = radius * (ratio * 2 - 1);
-        
-        const tx = px + Math.cos(perpAngle) * distSide + Math.cos(angle) * distForward;
-        const ty = py + Math.sin(perpAngle) * distSide + Math.sin(angle) * distForward;
-        
-        // Add hand-drawn organic curve jitter
-        const cx = (lx + tx) / 2 + (Math.random() - 0.5) * (radius * 0.12);
-        const cy = (ly + ty) / 2 + (Math.random() - 0.5) * (radius * 0.12);
-        ctx.quadraticCurveTo(cx, cy, tx, ty);
-        lx = tx;
-        ly = ty;
+  // Coordinates mapping on the slender silhouette template
+  const locationsMap = {
+    head: { x: 0.50, y: 0.11, r: 28 },
+    face: { x: 0.50, y: 0.15, r: 24 },
+    neck: { x: 0.50, y: 0.21, r: 16 },
+    chest: { x: 0.50, y: 0.31, r: 34 },
+    stomach: { x: 0.50, y: 0.42, r: 30 },
+    waist: { x: 0.50, y: 0.52, r: 26 },
+    left_shoulder: { x: 0.40, y: 0.25, r: 18 },
+    left_arm: { x: 0.35, y: 0.35, r: 20 },
+    left_hand: { x: 0.27, y: 0.51, r: 18 },
+    right_shoulder: { x: 0.60, y: 0.25, r: 18 },
+    right_arm: { x: 0.65, y: 0.35, r: 20 },
+    right_hand: { x: 0.73, y: 0.51, r: 18 },
+    left_thigh: { x: 0.43, y: 0.64, r: 22 },
+    left_knee: { x: 0.43, y: 0.78, r: 18 },
+    left_foot: { x: 0.43, y: 0.92, r: 16 },
+    right_thigh: { x: 0.57, y: 0.64, r: 22 },
+    right_knee: { x: 0.57, y: 0.78, r: 18 },
+    right_foot: { x: 0.57, y: 0.92, r: 16 }
+  };
+
+  // Helper to interpolate path control points into a dense set of path steps
+  function getPathPoints(pointNames, stepSize = 4) {
+    const path = [];
+    if (pointNames.length < 2) {
+      if (pointNames.length === 1) {
+        const pt = locationsMap[pointNames[0]];
+        path.push({ x: pt.x * canvas.width, y: pt.y * canvas.height, r: pt.r * (canvas.width / 723), tx: 0, ty: 1 });
       }
-      ctx.stroke();
-    } 
-    else if (style === 1) {
-      // 2. Coiled Spiral Loops: dense, organic circular loops
-      ctx.lineWidth = 2.5 + Math.random() * 2.5;
-      ctx.globalAlpha = 0.55 + Math.random() * 0.3;
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      
-      const totalPoints = loops * 6;
-      let lx = px;
-      let ly = py;
-      
-      for (let i = 0; i < totalPoints; i++) {
-        const t = i / totalPoints;
-        const spiralAngle = i * 0.22;
-        const spiralRadius = radius * t * (0.95 + Math.random() * 0.25);
-        const tx = px + Math.cos(spiralAngle) * spiralRadius + (Math.random() - 0.5) * (radius * 0.06);
-        const ty = py + Math.sin(spiralAngle) * spiralRadius + (Math.random() - 0.5) * (radius * 0.06);
-        
-        const cx = (lx + tx) / 2 + (Math.random() - 0.5) * (radius * 0.04);
-        const cy = (ly + ty) / 2 + (Math.random() - 0.5) * (radius * 0.04);
-        ctx.quadraticCurveTo(cx, cy, tx, ty);
-        lx = tx;
-        ly = ty;
-      }
-      ctx.stroke();
-    } 
-    else {
-      // 3. Parallel Cross-Hatching: dense overlapping sketch lines
-      ctx.lineWidth = 1.5 + Math.random() * 1.5;
-      ctx.globalAlpha = 0.5 + Math.random() * 0.3;
-      
-      const hatchAngle = Math.random() * Math.PI * 2;
-      const numLines = 20 + Math.floor(Math.random() * 10);
-      
-      const drawHatchSet = (ang) => {
-        const perpAng = ang + Math.PI / 2;
-        for (let i = 0; i < numLines; i++) {
-          const ratio = (i / numLines) * 2 - 1;
-          const offset = ratio * radius;
-          const chordHalf = Math.sqrt(Math.max(0, radius * radius - offset * offset)) || 5;
-          
-          const startX = px + Math.cos(perpAng) * offset - Math.cos(ang) * chordHalf * (0.85 + Math.random() * 0.25);
-          const startY = py + Math.sin(perpAng) * offset - Math.sin(ang) * chordHalf * (0.85 + Math.random() * 0.25);
-          const endX = px + Math.cos(perpAng) * offset + Math.cos(ang) * chordHalf * (0.85 + Math.random() * 0.25);
-          const endY = py + Math.sin(perpAng) * offset + Math.sin(ang) * chordHalf * (0.85 + Math.random() * 0.25);
-          
-          ctx.beginPath();
-          ctx.moveTo(startX, startY);
-          const jitterPoints = 3;
-          for (let j = 1; j <= jitterPoints; j++) {
-            const jt = j / jitterPoints;
-            const tx = startX + (endX - startX) * jt + (Math.random() - 0.5) * 3;
-            const ty = startY + (endY - startY) * jt + (Math.random() - 0.5) * 3;
-            ctx.lineTo(tx, ty);
-          }
-          ctx.stroke();
-        }
-      };
-      
-      drawHatchSet(hatchAngle);
-      if (Math.random() > 0.3) {
-        drawHatchSet(hatchAngle + Math.PI / 3 + Math.random() * (Math.PI / 3));
-      }
+      return path;
     }
     
-    // Add Crayon Wax Splatter Texture: tiny dots inside the scribble zone
-    ctx.globalAlpha = 0.3 + Math.random() * 0.3;
-    const numParticles = 80 + Math.floor(Math.random() * 80);
-    for (let i = 0; i < numParticles; i++) {
-      const ptAngle = Math.random() * Math.PI * 2;
-      const ptDist = Math.random() * radius;
-      const ptX = px + Math.cos(ptAngle) * ptDist + (Math.random() - 0.5) * 4;
-      const ptY = py + Math.sin(ptAngle) * ptDist + (Math.random() - 0.5) * 4;
+    for (let i = 0; i < pointNames.length - 1; i++) {
+      const p1 = locationsMap[pointNames[i]];
+      const p2 = locationsMap[pointNames[i+1]];
+      const p1x = p1.x * canvas.width;
+      const p1y = p1.y * canvas.height;
+      const p1r = p1.r * (canvas.width / 723);
+      const p2x = p2.x * canvas.width;
+      const p2y = p2.y * canvas.height;
+      const p2r = p2.r * (canvas.width / 723);
       
-      ctx.beginPath();
-      ctx.arc(ptX, ptY, 0.8 + Math.random() * 1.5, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    
-    ctx.restore();
-  }
-  
-  // Helper function to draw thick, dense connecting crayon strokes (fully merged)
-  function drawConnectingScribble(ctx, p1, p2, color) {
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const distance = Math.sqrt(dx*dx + dy*dy) || 1;
-    const px = -dy / distance;
-    const py = dx / distance;
-    
-    // 1. Draw very dense, overlapping wavy crayon lines along the path to fuse them
-    const numLines = 16 + Math.floor(Math.random() * 8);
-    ctx.lineWidth = 2.5 + Math.random() * 2.0;
-    ctx.globalAlpha = 0.6 + Math.random() * 0.25;
-    
-    for (let i = 0; i < numLines; i++) {
-      ctx.beginPath();
-      const sAmt = (Math.random() - 0.5) * (p1.r * 0.9);
-      const eAmt = (Math.random() - 0.5) * (p2.r * 0.9);
+      const dx = p2x - p1x;
+      const dy = p2y - p1y;
+      const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      const steps = Math.ceil(dist / stepSize);
       
-      const startX = p1.x + px * sAmt;
-      const startY = p1.y + py * sAmt;
-      const endX = p2.x + px * eAmt;
-      const endY = p2.y + py * eAmt;
-      
-      ctx.moveTo(startX, startY);
-      
-      const steps = 4;
-      let lx = startX;
-      let ly = startY;
-      for (let j = 1; j <= steps; j++) {
+      for (let j = 0; j < steps; j++) {
         const t = j / steps;
-        const targetX = startX + (endX - startX) * t;
-        const targetY = startY + (endY - startY) * t;
-        
-        const jitter = (Math.random() - 0.5) * 8;
-        const tx = targetX + px * jitter;
-        const ty = targetY + py * jitter;
-        
-        const cx = (lx + tx) / 2 + (Math.random() - 0.5) * 3;
-        const cy = (ly + ty) / 2 + (Math.random() - 0.5) * 3;
-        ctx.quadraticCurveTo(cx, cy, tx, ty);
-        lx = tx;
-        ly = ty;
+        const x = p1x + dx * t;
+        const y = p1y + dy * t;
+        const r = p1r + (p2r - p1r) * t;
+        const tx = dx / dist;
+        const ty = dy / dist;
+        path.push({ x, y, r, tx, ty });
       }
-      ctx.stroke();
     }
     
-    // 2. Draw dense diagonal/cross-hatch shading to merge the shapes completely without gaps
-    const steps = Math.max(10, Math.floor(distance / 5)); // Hatch every 5 pixels
-    ctx.lineWidth = 1.5 + Math.random() * 1.5;
-    ctx.globalAlpha = 0.5 + Math.random() * 0.3;
+    // Add the final point
+    const last = locationsMap[pointNames[pointNames.length - 1]];
+    const prev = locationsMap[pointNames[pointNames.length - 2]];
+    const prevx = prev.x * canvas.width;
+    const prevy = prev.y * canvas.height;
+    const lastx = last.x * canvas.width;
+    const lasty = last.y * canvas.height;
+    const lastr = last.r * (canvas.width / 723);
+    const dx = lastx - prevx;
+    const dy = lasty - prevy;
+    const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+    path.push({ x: lastx, y: lasty, r: lastr, tx: dx/dist, ty: dy/dist });
     
-    for (let j = 0; j <= steps; j++) {
-      const t = j / steps;
-      const cx = p1.x + dx * t;
-      const cy = p1.y + dy * t;
-      const currentRadius = p1.r + (p2.r - p1.r) * t;
-      const strokeHalf = currentRadius * (0.8 + Math.random() * 0.3);
-      
-      // Alternate hatch angles to create solid cross-hatching
-      const angleOffset = (j % 2 === 0 ? Math.PI / 4 : -Math.PI / 4) + (Math.random() - 0.5) * 0.15;
-      const hx = Math.cos(angleOffset) * strokeHalf;
-      const hy = Math.sin(angleOffset) * strokeHalf;
-      
-      ctx.beginPath();
-      ctx.moveTo(cx - hx, cy - hy);
-      ctx.lineTo(cx + hx, cy + hy);
-      ctx.stroke();
-    }
+    return path;
+  }
+
+  // 1. Coiled loops/helical wrapper along path (Style 0)
+  function drawHelicalCoil(ctx, path, color) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 2.0 + Math.random() * 2.0;
+    ctx.globalAlpha = 0.55 + Math.random() * 0.25;
     
+    ctx.beginPath();
+    let angle = 0;
+    const angleStep = 0.35;
+    
+    path.forEach((pt, idx) => {
+      const px = -pt.ty;
+      const py = pt.tx;
+      const currentRadius = pt.r * (0.8 + Math.random() * 0.4);
+      
+      const offsetP = Math.cos(angle) * currentRadius;
+      const offsetT = Math.sin(angle) * currentRadius * 0.4;
+      
+      const x = pt.x + px * offsetP + pt.tx * offsetT;
+      const y = pt.y + py * offsetP + pt.ty * offsetT;
+      
+      if (idx === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+      
+      angle += angleStep;
+    });
+    ctx.stroke();
     ctx.restore();
   }
 
-  // 18-point coordinate centers for ALL body mapping parts on the new slender silhouette template
-  const nodes = [
-    { id: 'head', x: 0.50, y: 0.11, r: 28, neighbors: ['face', 'neck'] },
-    { id: 'face', x: 0.50, y: 0.15, r: 24, neighbors: ['head', 'neck'] },
-    { id: 'neck', x: 0.50, y: 0.21, r: 16, neighbors: ['head', 'face', 'chest', 'left_shoulder', 'right_shoulder'] },
-    { id: 'chest', x: 0.50, y: 0.31, r: 34, neighbors: ['neck', 'stomach', 'left_shoulder', 'right_shoulder'] },
-    { id: 'stomach', x: 0.50, y: 0.42, r: 30, neighbors: ['chest', 'waist'] },
-    { id: 'waist', x: 0.50, y: 0.52, r: 26, neighbors: ['stomach', 'left_thigh', 'right_thigh'] },
-    { id: 'left_shoulder', x: 0.40, y: 0.25, r: 18, neighbors: ['neck', 'chest', 'left_arm'] },
-    { id: 'left_arm', x: 0.35, y: 0.35, r: 20, neighbors: ['left_shoulder', 'left_hand'] },
-    { id: 'left_hand', x: 0.27, y: 0.51, r: 18, neighbors: ['left_arm'] },
-    { id: 'right_shoulder', x: 0.60, y: 0.25, r: 18, neighbors: ['neck', 'chest', 'right_arm'] },
-    { id: 'right_arm', x: 0.65, y: 0.35, r: 20, neighbors: ['right_shoulder', 'right_hand'] },
-    { id: 'right_hand', x: 0.73, y: 0.51, r: 18, neighbors: ['right_arm'] },
-    { id: 'left_thigh', x: 0.43, y: 0.64, r: 22, neighbors: ['waist', 'left_knee'] },
-    { id: 'left_knee', x: 0.43, y: 0.78, r: 18, neighbors: ['left_thigh', 'left_foot'] },
-    { id: 'left_foot', x: 0.43, y: 0.92, r: 16, neighbors: ['left_knee'] },
-    { id: 'right_thigh', x: 0.57, y: 0.64, r: 22, neighbors: ['waist', 'right_knee'] },
-    { id: 'right_knee', x: 0.57, y: 0.78, r: 18, neighbors: ['right_thigh', 'right_foot'] },
-    { id: 'right_foot', x: 0.57, y: 0.92, r: 16, neighbors: ['right_knee'] }
+  // 2. Zigzag Crayon Coloring along path (Style 1)
+  function drawZigzag(ctx, path, color) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 2.5 + Math.random() * 2.5;
+    ctx.globalAlpha = 0.6 + Math.random() * 0.25;
+    
+    ctx.beginPath();
+    const swingInterval = 3;
+    let swingSide = 1;
+    
+    path.forEach((pt, idx) => {
+      if (idx % swingInterval === 0 || idx === 0 || idx === path.length - 1) {
+        swingSide = -swingSide;
+        const px = -pt.ty;
+        const py = pt.tx;
+        const currentRadius = pt.r * (0.9 + Math.random() * 0.3);
+        
+        const x = pt.x + px * swingSide * currentRadius;
+        const y = pt.y + py * swingSide * currentRadius;
+        
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+    });
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 3. Parallel Cross-Hatching along path (Style 2)
+  function drawCrossHatch(ctx, path, color) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 1.5 + Math.random() * 1.5;
+    ctx.globalAlpha = 0.5 + Math.random() * 0.25;
+    
+    const interval = 4;
+    
+    path.forEach((pt, idx) => {
+      if (idx % interval === 0) {
+        const px = -pt.ty;
+        const py = pt.tx;
+        const currentRadius = pt.r * (0.95 + Math.random() * 0.35);
+        
+        const angle1 = Math.PI / 4 + (Math.random() - 0.5) * 0.2;
+        const hx1 = Math.cos(angle1) * currentRadius;
+        const hy1 = Math.sin(angle1) * currentRadius;
+        
+        ctx.beginPath();
+        ctx.moveTo(pt.x - hx1, pt.y - hy1);
+        ctx.lineTo(pt.x + hx1, pt.y + hy1);
+        ctx.stroke();
+        
+        const angle2 = -Math.PI / 4 + (Math.random() - 0.5) * 0.2;
+        const hx2 = Math.cos(angle2) * currentRadius;
+        const hy2 = Math.sin(angle2) * currentRadius;
+        
+        ctx.beginPath();
+        ctx.moveTo(pt.x - hx2, pt.y - hy2);
+        ctx.lineTo(pt.x + hx2, pt.y + hy2);
+        ctx.stroke();
+      }
+    });
+    ctx.restore();
+  }
+
+  // 4. Parallel strokes along path (Style 3)
+  function drawParallelStrokes(ctx, path, color) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 1.8 + Math.random() * 1.8;
+    ctx.globalAlpha = 0.55 + Math.random() * 0.25;
+    
+    const offsets = [-0.6, -0.2, 0.2, 0.6];
+    
+    offsets.forEach(offsetRatio => {
+      ctx.beginPath();
+      path.forEach((pt, idx) => {
+        const px = -pt.ty;
+        const py = pt.tx;
+        const currentRadius = pt.r * offsetRatio;
+        
+        const x = pt.x + px * currentRadius + (Math.random() - 0.5) * 3;
+        const y = pt.y + py * currentRadius + (Math.random() - 0.5) * 3;
+        
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
+  // 5. Spiky star scribbles along path (Style 4)
+  function drawSpikyStars(ctx, path, color) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    
+    const interval = 10;
+    
+    path.forEach((pt, idx) => {
+      if (idx % interval === 0) {
+        ctx.beginPath();
+        const numSpikes = 6 + Math.floor(Math.random() * 5);
+        ctx.lineWidth = 1.5 + Math.random();
+        ctx.globalAlpha = 0.45 + Math.random() * 0.25;
+        
+        for (let i = 0; i < numSpikes; i++) {
+          const angle = (i / numSpikes) * Math.PI * 2 + Math.random() * 0.2;
+          const outerR = pt.r * (0.8 + Math.random() * 0.5);
+          const ox = pt.x + Math.cos(angle) * outerR;
+          const oy = pt.y + Math.sin(angle) * outerR;
+          
+          ctx.moveTo(pt.x, pt.y);
+          ctx.lineTo(ox, oy);
+        }
+        ctx.stroke();
+      }
+    });
+    ctx.restore();
+  }
+
+  // 6. Circular Head Spiral for non-merged head drawing
+  function drawHeadSpiral(ctx, centerNode, color) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3.0 + Math.random() * 2.0;
+    ctx.globalAlpha = 0.6 + Math.random() * 0.25;
+    
+    const cx = centerNode.x * canvas.width;
+    const cy = centerNode.y * canvas.height;
+    const maxRadius = centerNode.r * (canvas.width / 723) * 1.1;
+    
+    ctx.beginPath();
+    const loops = 4 + Math.floor(Math.random() * 3);
+    const totalPoints = loops * 50;
+    
+    let lx = cx;
+    let ly = cy;
+    ctx.moveTo(lx, ly);
+    
+    for (let i = 0; i < totalPoints; i++) {
+      const t = i / totalPoints;
+      const angle = i * 0.15;
+      const r = maxRadius * t * (0.95 + Math.random() * 0.2);
+      const tx = cx + Math.cos(angle) * r;
+      const ty = cy + Math.sin(angle) * r;
+      
+      const ctrlx = (lx + tx) / 2 + (Math.random() - 0.5) * 3;
+      const ctrly = (ly + ty) / 2 + (Math.random() - 0.5) * 3;
+      
+      ctx.quadraticCurveTo(ctrlx, ctrly, tx, ty);
+      lx = tx;
+      ly = ty;
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Define possible grouping configurations (all of them cover 100% of body nodes)
+  const configs = [
+    // Config A: Fully separated regions (6 groups)
+    [
+      { hasHead: true, isHeadOnly: true, path: ['head', 'face', 'neck'] },
+      { path: ['chest', 'stomach', 'waist'] },
+      { path: ['left_hand', 'left_arm', 'left_shoulder'] },
+      { path: ['right_hand', 'right_arm', 'right_shoulder'] },
+      { path: ['left_thigh', 'left_knee', 'left_foot'] },
+      { path: ['right_thigh', 'right_knee', 'right_foot'] }
+    ],
+    // Config B: Left arm connected to torso (5 groups)
+    [
+      { hasHead: true, isHeadOnly: true, path: ['head', 'face', 'neck'] },
+      { path: ['left_hand', 'left_arm', 'left_shoulder', 'chest', 'stomach', 'waist'] },
+      { path: ['right_hand', 'right_arm', 'right_shoulder'] },
+      { path: ['left_thigh', 'left_knee', 'left_foot'] },
+      { path: ['right_thigh', 'right_knee', 'right_foot'] }
+    ],
+    // Config C: Right arm connected to torso (5 groups)
+    [
+      { hasHead: true, isHeadOnly: true, path: ['head', 'face', 'neck'] },
+      { path: ['right_hand', 'right_arm', 'right_shoulder', 'chest', 'stomach', 'waist'] },
+      { path: ['left_hand', 'left_arm', 'left_shoulder'] },
+      { path: ['left_thigh', 'left_knee', 'left_foot'] },
+      { path: ['right_thigh', 'right_knee', 'right_foot'] }
+    ],
+    // Config D: Both arms and Torso connected (4 groups)
+    [
+      { hasHead: true, isHeadOnly: true, path: ['head', 'face', 'neck'] },
+      { path: ['left_hand', 'left_arm', 'left_shoulder', 'chest', 'stomach', 'waist', 'right_shoulder', 'right_arm', 'right_hand'] },
+      { path: ['left_thigh', 'left_knee', 'left_foot'] },
+      { path: ['right_thigh', 'right_knee', 'right_foot'] }
+    ],
+    // Config E: Torso connected to left leg (5 groups)
+    [
+      { hasHead: true, isHeadOnly: true, path: ['head', 'face', 'neck'] },
+      { path: ['chest', 'stomach', 'waist', 'left_thigh', 'left_knee', 'left_foot'] },
+      { path: ['right_thigh', 'right_knee', 'right_foot'] },
+      { path: ['left_hand', 'left_arm', 'left_shoulder'] },
+      { path: ['right_hand', 'right_arm', 'right_shoulder'] }
+    ],
+    // Config F: Torso connected to both legs (4 groups)
+    [
+      { hasHead: true, isHeadOnly: true, path: ['head', 'face', 'neck'] },
+      { path: ['left_foot', 'left_knee', 'left_thigh', 'waist', 'stomach', 'chest', 'right_thigh', 'right_knee', 'right_foot'] },
+      { path: ['left_hand', 'left_arm', 'left_shoulder'] },
+      { path: ['right_hand', 'right_arm', 'right_shoulder'] }
+    ],
+    // Config G: Head connected to torso (Spine merge, 5 groups)
+    [
+      { hasHead: true, isHeadOnly: false, path: ['head', 'face', 'neck', 'chest', 'stomach', 'waist'] },
+      { path: ['left_hand', 'left_arm', 'left_shoulder'] },
+      { path: ['right_hand', 'right_arm', 'right_shoulder'] },
+      { path: ['left_thigh', 'left_knee', 'left_foot'] },
+      { path: ['right_thigh', 'right_knee', 'right_foot'] }
+    ]
   ];
-  
+
   // Art therapy colors (Red, Blue, Green, Yellow, Purple, Orange, Dark Grey)
   const colors = [
     '#FF0000', // Red (Anger)
@@ -506,110 +617,87 @@ function loadDemoImage() {
     '#FFA500', // Orange (Stress)
     '#4A4A4A'  // Dark Grey (Confusion/Grief/Numbness)
   ];
+
+  // Select a random body layout configuration
+  const activeConfig = configs[Math.floor(Math.random() * configs.length)];
   
-  // Union-Find / Disjoint-Set forest clustering to group all 18 nodes into connected components
-  const parent = {};
-  nodes.forEach(n => parent[n.id] = n.id);
-  
-  function find(i) {
-    if (parent[i] === i) return i;
-    return parent[i] = find(parent[i]);
-  }
-  
-  function union(i, j) {
-    const rootI = find(i);
-    const rootJ = find(j);
-    if (rootI !== rootJ) {
-      parent[rootI] = rootJ;
-      return true;
-    }
-    return false;
-  }
-  
-  // Build a list of all unique edges in the human graph structure
-  const edges = [];
-  const edgeSet = new Set();
-  nodes.forEach(n => {
-    n.neighbors.forEach(nbr => {
-      const edgeKey = n.id < nbr ? `${n.id}-${nbr}` : `${nbr}-${n.id}`;
-      if (!edgeSet.has(edgeKey)) {
-        edgeSet.add(edgeKey);
-        edges.push([n.id, nbr]);
-      }
-    });
-  });
-  
-  // Shuffle edges and union them randomly until we get exactly 3 to 5 connected groups
-  const shuffledEdges = [...edges].sort(() => 0.5 - Math.random());
-  const targetGroups = 3 + Math.floor(Math.random() * 3); // 3, 4, or 5 distinct colors/emotions
-  let currentComponents = nodes.length;
-  
-  const unionedEdges = [];
-  for (let i = 0; i < shuffledEdges.length; i++) {
-    if (currentComponents <= targetGroups) break;
-    const [u, v] = shuffledEdges[i];
-    if (union(u, v)) {
-      unionedEdges.push([u, v]);
-      currentComponents--;
-    }
-  }
-  
-  // Group the node IDs by their root component ID
-  const groups = {};
-  nodes.forEach(n => {
-    const root = find(n.id);
-    if (!groups[root]) groups[root] = [];
-    groups[root].push(n);
-  });
-  
-  // Shuffle colors to ensure random assignment
+  // Shuffle colors to assign uniquely
   const shuffledColors = [...colors].sort(() => 0.5 - Math.random());
-  const groupColors = {};
-  let colorIdx = 0;
   
-  Object.keys(groups).forEach(root => {
-    groupColors[root] = shuffledColors[colorIdx % shuffledColors.length];
-    colorIdx++;
-  });
-  
-  // Draw nodes (isolated shapes are drawn as circles, but all 18 nodes will be drawn)
-  nodes.forEach(node => {
-    const root = find(node.id);
-    const color = groupColors[root];
-    const px = node.x * canvas.width;
-    const py = node.y * canvas.height;
-    const radius = node.r * (canvas.width / 723) * (0.85 + Math.random() * 0.3);
+  // Draw each group in the configuration
+  activeConfig.forEach((group, gIdx) => {
+    const color = shuffledColors[gIdx % shuffledColors.length];
     
-    drawScribble(ctx, px, py, radius, color);
+    // Choose style: spirals/coils (0), zigzag (1), cross-hatch (2), parallel lines (3), spiky stars (4)
+    let style = Math.floor(Math.random() * 4); // 0 to 3 default styles
     
-    // 25% chance of secondary color overlay inside this node to look more realistic
-    if (Math.random() < 0.25) {
-      const secondaryColors = colors.filter(c => c !== color);
-      const secColor = secondaryColors[Math.floor(Math.random() * secondaryColors.length)];
-      drawScribble(ctx, px, py, radius * 0.7, secColor);
+    // Legs or arms have a small chance of spiky stars (4)
+    if (group.path.length <= 3 && Math.random() < 0.25) {
+      style = 4;
     }
-  });
-  
-  // Draw connecting dense scribbles for all unioned edges to fuse the components together
-  unionedEdges.forEach(([uId, vId]) => {
-    const uNode = nodes.find(n => n.id === uId);
-    const vNode = nodes.find(n => n.id === vId);
-    const root = find(uId);
-    const color = groupColors[root];
     
-    const p1 = {
-      x: uNode.x * canvas.width,
-      y: uNode.y * canvas.height,
-      r: uNode.r * (canvas.width / 723)
-    };
+    if (group.hasHead && group.isHeadOnly && Math.random() < 0.7) {
+      // 1. Draw head spiral
+      drawHeadSpiral(ctx, locationsMap.head, color);
+      
+      // Draw neck/throat as a small separate scribble with same color
+      const neckPath = getPathPoints(['face', 'neck'], 4);
+      drawZigzag(ctx, neckPath, color);
+    }
+    else {
+      // Get the interpolated dense path points
+      const pathPoints = getPathPoints(group.path, 4);
+      if (pathPoints.length === 0) return;
+      
+      // Draw path using the chosen style
+      if (style === 0) {
+        drawHelicalCoil(ctx, pathPoints, color);
+      } else if (style === 1) {
+        drawZigzag(ctx, pathPoints, color);
+      } else if (style === 2) {
+        drawCrossHatch(ctx, pathPoints, color);
+      } else if (style === 3) {
+        drawParallelStrokes(ctx, pathPoints, color);
+      } else {
+        drawSpikyStars(ctx, pathPoints, color);
+      }
+      
+      // 25% chance of secondary color overlay inside one segment of the path to look richer
+      if (Math.random() < 0.25) {
+        const secondaryColors = colors.filter(c => c !== color);
+        const secColor = secondaryColors[Math.floor(Math.random() * secondaryColors.length)];
+        const subPathStart = Math.floor(Math.random() * (pathPoints.length / 2));
+        const subPath = pathPoints.slice(subPathStart, subPathStart + Math.floor(pathPoints.length / 3) + 2);
+        if (subPath.length > 0) {
+          if (Math.random() < 0.5) drawZigzag(ctx, subPath, secColor);
+          else drawHelicalCoil(ctx, subPath, secColor);
+        }
+      }
+    }
     
-    const p2 = {
-      x: vNode.x * canvas.width,
-      y: vNode.y * canvas.height,
-      r: vNode.r * (canvas.width / 723)
-    };
+    // Add Crayon Wax Splatter Texture around the path vertices to look like real crayon/pencil drawing
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.25 + Math.random() * 0.25;
     
-    drawConnectingScribble(ctx, p1, p2, color);
+    const numSplatters = 30 + group.path.length * 15;
+    for (let i = 0; i < numSplatters; i++) {
+      // Pick a random location on the path
+      const nodeName = group.path[Math.floor(Math.random() * group.path.length)];
+      const loc = locationsMap[nodeName];
+      const radius = loc.r * (canvas.width / 723);
+      
+      const ptAngle = Math.random() * Math.PI * 2;
+      const ptDist = Math.random() * radius * 1.1;
+      
+      const ptX = loc.x * canvas.width + Math.cos(ptAngle) * ptDist + (Math.random() - 0.5) * 6;
+      const ptY = loc.y * canvas.height + Math.sin(ptAngle) * ptDist + (Math.random() - 0.5) * 6;
+      
+      ctx.beginPath();
+      ctx.arc(ptX, ptY, 0.8 + Math.random() * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   });
   
   // Generate Data URL and load it
