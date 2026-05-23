@@ -272,7 +272,7 @@ function loadDemoImage() {
   // 1. Draw the slender silhouette template background
   ctx.drawImage(templateImg, 0, 0);
   
-  // Helper function to draw organic human-like scribble/painting texture
+  // Helper function to draw organic human-like scribble/painting texture at a specific node
   function drawScribble(ctx, px, py, radius, color) {
     ctx.save();
     ctx.strokeStyle = color;
@@ -396,55 +396,207 @@ function loadDemoImage() {
     ctx.restore();
   }
   
-  // 2. Define possible body mapping locations (normalized x, y on slender silhouette)
-  const locations = [
-    { name: 'head', x: 0.50, y: 0.13, r: 26 },
-    { name: 'throat', x: 0.50, y: 0.22, r: 16 },
-    { name: 'chest', x: 0.50, y: 0.33, r: 36 },
-    { name: 'stomach', x: 0.50, y: 0.50, r: 32 },
-    { name: 'pelvis', x: 0.50, y: 0.62, r: 26 },
-    { name: 'left_hand', x: 0.31, y: 0.51, r: 22 },
-    { name: 'right_hand', x: 0.69, y: 0.51, r: 22 },
-    { name: 'left_knee', x: 0.46, y: 0.77, r: 20 },
-    { name: 'right_knee', x: 0.54, y: 0.77, r: 20 },
-    { name: 'left_foot', x: 0.46, y: 0.94, r: 16 },
-    { name: 'right_foot', x: 0.54, y: 0.94, r: 16 }
+  // Helper function to draw connecting crayon strokes between two nodes
+  function drawConnectingScribble(ctx, p1, p2, color) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const distance = Math.sqrt(dx*dx + dy*dy) || 1;
+    const px = -dy / distance;
+    const py = dx / distance;
+    
+    // 1. Draw 6 to 10 messy wavy crayon lines between the two parts
+    const numLines = 6 + Math.floor(Math.random() * 5);
+    ctx.lineWidth = 1.5 + Math.random() * 1.5;
+    ctx.globalAlpha = 0.4 + Math.random() * 0.3;
+    
+    for (let i = 0; i < numLines; i++) {
+      ctx.beginPath();
+      const sAmt = (Math.random() - 0.5) * (p1.r * 0.8);
+      const eAmt = (Math.random() - 0.5) * (p2.r * 0.8);
+      
+      const startX = p1.x + px * sAmt;
+      const startY = p1.y + py * sAmt;
+      const endX = p2.x + px * eAmt;
+      const endY = p2.y + py * eAmt;
+      
+      ctx.moveTo(startX, startY);
+      
+      const steps = 3;
+      let lx = startX;
+      let ly = startY;
+      for (let j = 1; j <= steps; j++) {
+        const t = j / steps;
+        const targetX = startX + (endX - startX) * t;
+        const targetY = startY + (endY - startY) * t;
+        
+        const jitter = (Math.random() - 0.5) * 12;
+        const tx = targetX + px * jitter;
+        const ty = targetY + py * jitter;
+        
+        const cx = (lx + tx) / 2 + (Math.random() - 0.5) * 4;
+        const cy = (ly + ty) / 2 + (Math.random() - 0.5) * 4;
+        ctx.quadraticCurveTo(cx, cy, tx, ty);
+        lx = tx;
+        ly = ty;
+      }
+      ctx.stroke();
+    }
+    
+    // 2. Draw diagonal colored-pencil cross-hatches along the path to fill the body structure naturally
+    const steps = 12;
+    ctx.lineWidth = 1.0 + Math.random();
+    ctx.globalAlpha = 0.35 + Math.random() * 0.25;
+    for (let j = 0; j < steps; j++) {
+      const t = j / steps;
+      const cx = p1.x + dx * t;
+      const cy = p1.y + dy * t;
+      const currentRadius = p1.r + (p2.r - p1.r) * t;
+      const strokeHalf = currentRadius * (0.6 + Math.random() * 0.4);
+      const angleOffset = Math.PI / 4 + (Math.random() - 0.5) * 0.2;
+      const hx = Math.cos(angleOffset) * strokeHalf;
+      const hy = Math.sin(angleOffset) * strokeHalf;
+      
+      ctx.beginPath();
+      ctx.moveTo(cx - hx, cy - hy);
+      ctx.lineTo(cx + hx, cy + hy);
+      ctx.stroke();
+    }
+    
+    ctx.restore();
+  }
+
+  // 2. Define coordinate centers for ALL body mapping parts on the new slender silhouette
+  const locationsMap = {
+    head: { name: 'head', x: 0.50, y: 0.11, r: 28 },
+    face: { name: 'face', x: 0.50, y: 0.15, r: 24 },
+    neck: { name: 'neck', x: 0.50, y: 0.21, r: 16 },
+    chest: { name: 'chest', x: 0.50, y: 0.31, r: 34 },
+    stomach: { name: 'stomach', x: 0.50, y: 0.42, r: 30 },
+    waist: { name: 'waist', x: 0.50, y: 0.52, r: 26 },
+    left_shoulder: { name: 'left_shoulder', x: 0.40, y: 0.25, r: 18 },
+    left_arm: { name: 'left_arm', x: 0.35, y: 0.35, r: 20 },
+    left_hand: { name: 'left_hand', x: 0.27, y: 0.51, r: 18 },
+    right_shoulder: { name: 'right_shoulder', x: 0.60, y: 0.25, r: 18 },
+    right_arm: { name: 'right_arm', x: 0.65, y: 0.35, r: 20 },
+    right_hand: { name: 'right_hand', x: 0.73, y: 0.51, r: 18 },
+    left_thigh: { name: 'left_thigh', x: 0.43, y: 0.64, r: 22 },
+    left_knee: { name: 'left_knee', x: 0.43, y: 0.78, r: 18 },
+    left_foot: { name: 'left_foot', x: 0.43, y: 0.92, r: 16 },
+    right_thigh: { name: 'right_thigh', x: 0.57, y: 0.64, r: 22 },
+    right_knee: { name: 'right_knee', x: 0.57, y: 0.78, r: 18 },
+    right_foot: { name: 'right_foot', x: 0.57, y: 0.92, r: 16 }
+  };
+  
+  // Chains of adjacent parts that can be drawn continuously
+  const chains = [
+    ['left_hand', 'left_arm', 'left_shoulder', 'chest'],
+    ['right_hand', 'right_arm', 'right_shoulder', 'chest'],
+    ['left_foot', 'left_knee', 'left_thigh', 'waist'],
+    ['right_foot', 'right_knee', 'right_thigh', 'waist'],
+    ['head', 'face', 'neck', 'chest'],
+    ['chest', 'stomach', 'waist']
   ];
   
-  // Art therapy colors (Red, Blue, Green, Yellow, Purple, Orange)
+  // Isolated single parts as fallback or individual drawings
+  const singleParts = [
+    'head', 'face', 'neck', 'chest', 'stomach', 'waist',
+    'left_hand', 'right_hand', 'left_foot', 'right_foot'
+  ];
+  
+  // Art therapy colors (Red, Blue, Green, Yellow, Purple, Orange, Dark Grey)
   const colors = [
     '#FF0000', // Red (Anger)
     '#0000FF', // Blue (Sadness)
     '#00FF00', // Green (Peace)
     '#FFFF00', // Yellow (Joy)
     '#A020F0', // Purple (Fear)
-    '#FFA500'  // Orange (Stress)
+    '#FFA500', // Orange (Stress)
+    '#4A4A4A'  // Dark Grey (Confusion/Grief/Numbness)
   ];
   
-  // Shuffle locations and pick 3 to 5 random ones
-  const shuffledLocs = [...locations].sort(() => 0.5 - Math.random());
-  const numRegions = 3 + Math.floor(Math.random() * 3); // 3 to 5 regions
-  const selectedLocs = shuffledLocs.slice(0, numRegions);
+  // Decide how many groups to draw (2 to 4)
+  const numGroups = 2 + Math.floor(Math.random() * 3);
   
-  // Draw randomized scribbles at each location
-  selectedLocs.forEach(loc => {
-    const px = loc.x * canvas.width;
-    const py = loc.y * canvas.height;
-    const radius = loc.r * (canvas.width / 723) * (0.8 + Math.random() * 0.5);
-    
-    // Choose primary color
+  // Track already drawn parts to add variety, though slight overlap is allowed
+  const drawnParts = new Set();
+  
+  for (let g = 0; g < numGroups; g++) {
+    // Choose color
     const color = colors[Math.floor(Math.random() * colors.length)];
     
-    // Draw the main organic scribble
-    drawScribble(ctx, px, py, radius, color);
+    // Choose whether to draw a connected chain (65%) or isolated part (35%)
+    const drawChain = Math.random() < 0.65;
     
-    // 30% chance of a secondary color overlapping scribble to make it look even more like a rich human drawing!
-    if (Math.random() > 0.7) {
-      const secondaryColors = colors.filter(c => c !== color);
-      const secondaryColor = secondaryColors[Math.floor(Math.random() * secondaryColors.length)];
-      drawScribble(ctx, px, py, radius * 0.7, secondaryColor);
+    if (drawChain) {
+      // Pick a random chain
+      const chain = chains[Math.floor(Math.random() * chains.length)];
+      
+      // Determine subset size (at least 2, up to chain.length)
+      const subsetSize = 2 + Math.floor(Math.random() * (chain.length - 1));
+      
+      // We can start from the beginning or the end of the chain
+      const startAtEnd = Math.random() < 0.5;
+      const chainSubset = startAtEnd 
+        ? chain.slice(chain.length - subsetSize)
+        : chain.slice(0, subsetSize);
+        
+      // Draw scribbles at each node in the subset
+      const nodesData = [];
+      chainSubset.forEach(partName => {
+        const loc = locationsMap[partName];
+        const px = loc.x * canvas.width;
+        const py = loc.y * canvas.height;
+        const radius = loc.r * (canvas.width / 723) * (0.8 + Math.random() * 0.4);
+        
+        drawScribble(ctx, px, py, radius, color);
+        nodesData.push({ x: px, y: py, r: radius });
+        drawnParts.add(partName);
+      });
+      
+      // Draw connecting lines between adjacent nodes in the chain subset
+      for (let i = 0; i < nodesData.length - 1; i++) {
+        drawConnectingScribble(ctx, nodesData[i], nodesData[i+1], color);
+      }
+      
+      // 25% chance of secondary color overlay on one of the nodes in the chain
+      if (Math.random() < 0.25) {
+        const overlayNodeIndex = Math.floor(Math.random() * nodesData.length);
+        const node = nodesData[overlayNodeIndex];
+        const secondaryColors = colors.filter(c => c !== color);
+        const secColor = secondaryColors[Math.floor(Math.random() * secondaryColors.length)];
+        drawScribble(ctx, node.x, node.y, node.r * 0.7, secColor);
+      }
+    } 
+    else {
+      // Pick an isolated part
+      let partName = singleParts[Math.floor(Math.random() * singleParts.length)];
+      // Try to find one not drawn yet, up to 5 attempts
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (!drawnParts.has(partName)) break;
+        partName = singleParts[Math.floor(Math.random() * singleParts.length)];
+      }
+      
+      const loc = locationsMap[partName];
+      const px = loc.x * canvas.width;
+      const py = loc.y * canvas.height;
+      const radius = loc.r * (canvas.width / 723) * (0.8 + Math.random() * 0.5);
+      
+      drawScribble(ctx, px, py, radius, color);
+      drawnParts.add(partName);
+      
+      // 30% chance of secondary color overlay
+      if (Math.random() < 0.3) {
+        const secondaryColors = colors.filter(c => c !== color);
+        const secColor = secondaryColors[Math.floor(Math.random() * secondaryColors.length)];
+        drawScribble(ctx, px, py, radius * 0.75, secColor);
+      }
     }
-  });
+  }
   
   // Generate Data URL and load it
   const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
@@ -458,7 +610,7 @@ function loadDemoImage() {
     prev.src = dataUrl;
     uploadZone.appendChild(prev);
     document.getElementById('analyzeBtn').disabled = !templateImg;
-    setStatus('Randomized hand-drawn scribble texture generated on the new silhouette. Ready to analyze!');
+    setStatus('Randomized organic scribble texture generated on the slender template body. Ready to analyze!');
   };
   img.onerror = () => {
     setStatus('Failed to generate randomized demo image.');
