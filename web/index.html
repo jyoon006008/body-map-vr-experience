@@ -1487,6 +1487,44 @@ async function runAnalysis() {
   setProgress(20);
   await sleep(10);
 
+  // Compute work-res insideSilhouetteMask (1 = inside template silhouette, 0 = outside)
+  const insideSilhouetteMask = new Uint8Array(workW * workH);
+  for (let i = 0; i < workW * workH; i++) {
+    insideSilhouetteMask[i] = (outsideMask[i] === 0 ? 1 : 0);
+  }
+
+  // Generate finalStrokeMask / diffMask
+  const finalStrokeMask = new Uint8Array(workW * workH);
+  for (let i = 0; i < workW * workH; i++) {
+    const i4 = i * 4;
+    const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
+    const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
+    if (insideSilhouetteMask[i] === 1 && isStrokePixel(pr, pg, pb, tplR, tplG, tplB)) {
+      finalStrokeMask[i] = 1;
+    }
+  }
+
+  // Generate Diff Map (pixel-perfect strokes on black background) early
+  const cDiff = document.getElementById('cDiff'); cDiff.width = workW; cDiff.height = workH;
+  const diffCtx = cDiff.getContext('2d');
+  const diffImg = diffCtx.createImageData(workW, workH);
+  for (let i = 0; i < workW * workH; i++) {
+    const i4 = i * 4;
+    if (finalStrokeMask[i] === 1) {
+      diffImg.data[i4] = alignedDrwData[i4];
+      diffImg.data[i4+1] = alignedDrwData[i4+1];
+      diffImg.data[i4+2] = alignedDrwData[i4+2];
+      diffImg.data[i4+3] = 255;
+    } else {
+      diffImg.data[i4] = 0;
+      diffImg.data[i4+1] = 0;
+      diffImg.data[i4+2] = 0;
+      diffImg.data[i4+3] = 255;
+    }
+  }
+  diffCtx.putImageData(diffImg, 0, 0);
+
+  // Separate finalStrokeMask by standard color category
   const colorMasks = {
     black: new Uint8Array(workW * workH),
     green: new Uint8Array(workW * workH),
@@ -1498,20 +1536,15 @@ async function runAnalysis() {
     purple: new Uint8Array(workW * workH)
   };
 
-  for (let y = 0; y < workH; y++) {
-    for (let x = 0; x < workW; x++) {
-      const idx = y * workW + x;
-      if (outsideMask[idx] === 1) continue;
+  for (let idx = 0; idx < workW * workH; idx++) {
+    if (finalStrokeMask[idx] === 1) {
       const i4 = idx * 4;
       const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
-      const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
-      if (isStrokePixel(pr, pg, pb, tplR, tplG, tplB)) {
-        const [h, s, v] = rgbToHsv(pr, pg, pb);
-        const pColor = classifyPixelColor(h, s, v);
-        const cat = getStandardColorCategory(pColor);
-        if (cat) {
-          colorMasks[cat][idx] = 1;
-        }
+      const [h, s, v] = rgbToHsv(pr, pg, pb);
+      const pColor = classifyPixelColor(h, s, v);
+      const cat = getStandardColorCategory(pColor);
+      if (cat) {
+        colorMasks[cat][idx] = 1;
       }
     }
   }
@@ -1522,31 +1555,17 @@ async function runAnalysis() {
   await sleep(10);
 
   const candidates = [];
-  const tplHeadCenterX = templateBBox.centerX;
-  const tplHeadCenterY = templateBBox.y + templateBBox.height * 0.08;
-
-  const config = {
-    black: { minArea: 60, densityLimit: 0.03, aspectLimit: 20, skipCircularity: true },
-    green: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
-    red: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
-    blue: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
-    orange_brown: { minArea: 250, densityLimit: 0.015, aspectLimit: 12, skipCircularity: false },
-    cyan: { minArea: 250, densityLimit: 0.015, aspectLimit: 12, skipCircularity: false },
-    yellow: { minArea: 100, densityLimit: 0.005, aspectLimit: 20, skipCircularity: false },
-    purple: { minArea: 80, densityLimit: 0.005, aspectLimit: 20, skipCircularity: false }
-  };
-
+  
+  // Extract connected components for each color mask
   for (const [colorCat, mask] of Object.entries(colorMasks)) {
     const comps = connectedComponents(mask, workW, workH);
-    let filteredComps = [];
-    
     for (const comp of comps) {
-      let sumX = 0, sumY = 0;
+      if (comp.length <= 15) continue; // skip tiny noise fragments
+
       let minX = workW, maxX = 0, minY = workH, maxY = 0;
       for (const idx of comp) {
         const cx = idx % workW;
         const cy = Math.floor(idx / workW);
-        sumX += cx; sumY += cy;
         if (cx < minX) minX = cx;
         if (cx > maxX) maxX = cx;
         if (cy < minY) minY = cy;
@@ -1554,88 +1573,21 @@ async function runAnalysis() {
       }
       const compW = maxX - minX + 1;
       const compH = maxY - minY + 1;
-      const cx = sumX / comp.length;
-      const cy = sumY / comp.length;
 
-      const cfg = config[colorCat] || { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false };
-      const minArea = cfg.minArea;
-      const densityLimit = cfg.densityLimit;
-      const aspectLimit = cfg.aspectLimit;
-      const skipCircularity = cfg.skipCircularity;
-
-      const strokeArea = comp.length;
-      const bboxArea = compW * compH;
-      const strokeDensity = strokeArea / bboxArea;
-      const aspectRatio = Math.max(compW, compH) / Math.min(compW, compH);
-
-      const circ = calculateCircularity(comp, workW, workH);
-
-      let removed = false;
-      let removalReason = "";
-
-      // Black outline/head filter: upper 25% only for black spiral candidate
-      if (colorCat === 'black') {
-        if (cy / workH >= 0.25) {
-          removed = true;
-          removalReason = "below head (upper 25% only for black)";
-        }
-      }
-
-      if (!removed && strokeDensity <= densityLimit) {
-        removed = true;
-        removalReason = `density (${strokeDensity.toFixed(4)} <= ${densityLimit})`;
-      }
-      if (!removed && aspectRatio >= aspectLimit) {
-        removed = true;
-        removalReason = `aspectRatio (${aspectRatio.toFixed(2)} >= ${aspectLimit})`;
-      }
-      if (!removed && strokeArea <= minArea) {
-        removed = true;
-        removalReason = `minArea (${strokeArea} <= ${minArea})`;
-      }
-      if (!removed && !skipCircularity && circ <= 0.05) {
-        removed = true;
-        removalReason = `circularity (${circ.toFixed(3)} <= 0.05)`;
-      }
-
-      if (removed) {
-        console.log("[removed]", {
-          color: colorCat,
-          area: strokeArea,
-          density: strokeDensity,
-          aspectRatio: aspectRatio,
-          circularity: circ,
-          removalReason: removalReason
-        });
-        continue;
-      }
-
-      const distToHead = Math.sqrt((cx - tplHeadCenterX) ** 2 + (cy - tplHeadCenterY) ** 2);
-      filteredComps.push({ comp, cx, cy, minX, maxX, minY, maxY, compW, compH, strokeDensity, aspectRatio, distToHead });
-    }
-
-    if (colorCat === 'black') {
-      filteredComps.sort((a, b) => a.distToHead - b.distToHead);
-      filteredComps = filteredComps.slice(0, 5);
-    }
-
-    for (const item of filteredComps) {
       candidates.push({
         color: colorCat,
-        pixels: item.comp,
-        strokeDensity: item.strokeDensity,
-        aspectRatio: item.aspectRatio,
+        pixels: comp,
         bbox: {
-          x: item.minX / workW,
-          y: item.minY / workH,
-          width: item.compW / workW,
-          height: item.compH / workH
+          x: minX / workW,
+          y: minY / workH,
+          width: compW / workW,
+          height: compH / workH
         }
       });
     }
   }
 
-  console.log("After filtering:", candidates.length);
+  console.log("After connected components:", candidates.length);
 
   /* ── Phase 4: Region Merge ───────────────────────────────── */
   setStatus('Merging adjacent components of same color…');
@@ -1715,12 +1667,6 @@ async function runAnalysis() {
             r1.pixels = mergedPixels;
             r1.bbox = { x: x1, y: y1, width: newW, height: newH };
 
-            // Recalculate properties
-            const pixelW = newW * workW;
-            const pixelH = newH * workH;
-            r1.strokeDensity = mergedPixels.length / (pixelW * pixelH);
-            r1.aspectRatio = Math.max(pixelW, pixelH) / Math.min(pixelW, pixelH);
-
             candidates.splice(j, 1);
             changed = true;
             break;
@@ -1731,13 +1677,127 @@ async function runAnalysis() {
     }
   }
 
-  const mergedRegions = candidates;
-  console.log("After merging:", mergedRegions.length);
+  /* ── Phase 4.5: Noise Filtering on Merged Regions ────────── */
+  const config = {
+    black: { minArea: 60, densityLimit: 0.03, aspectLimit: 20, skipCircularity: true },
+    green: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
+    red: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
+    blue: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
+    orange_brown: { minArea: 250, densityLimit: 0.015, aspectLimit: 12, skipCircularity: false },
+    cyan: { minArea: 250, densityLimit: 0.015, aspectLimit: 12, skipCircularity: false },
+    yellow: { minArea: 100, densityLimit: 0.005, aspectLimit: 20, skipCircularity: false },
+    purple: { minArea: 80, densityLimit: 0.005, aspectLimit: 20, skipCircularity: false }
+  };
+
+  const filteredMerged = [];
+  const tplHeadCenterX = templateBBox.centerX;
+  const tplHeadCenterY = templateBBox.y + templateBBox.height * 0.08;
+
+  for (const r of candidates) {
+    let minX = workW, maxX = 0, minY = workH, maxY = 0;
+    for (const idx of r.pixels) {
+      const cx = idx % workW;
+      const cy = Math.floor(idx / workW);
+      if (cx < minX) minX = cx;
+      if (cx > maxX) maxX = cx;
+      if (cy < minY) minY = cy;
+      if (cy > maxY) maxY = cy;
+    }
+    const compW = maxX - minX + 1;
+    const compH = maxY - minY + 1;
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+
+    const cfg = config[r.color] || { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false };
+    const minArea = cfg.minArea;
+    const densityLimit = cfg.densityLimit;
+    const aspectLimit = cfg.aspectLimit;
+    const skipCircularity = cfg.skipCircularity;
+
+    const strokeArea = r.pixels.length;
+    const bboxArea = compW * compH;
+    const strokeDensity = strokeArea / bboxArea;
+    const aspectRatio = Math.max(compW, compH) / Math.min(compW, compH);
+
+    const circ = calculateCircularity(r.pixels, workW, workH);
+
+    let removed = false;
+    let removalReason = "";
+
+    // Black outline/head filter: upper 25% only for black spiral candidate
+    if (r.color === 'black') {
+      if (cy / workH >= 0.25) {
+        removed = true;
+        removalReason = "below head (upper 25% only for black)";
+      }
+    }
+
+    if (!removed && strokeDensity <= densityLimit) {
+      removed = true;
+      removalReason = `density (${strokeDensity.toFixed(4)} <= ${densityLimit})`;
+    }
+    if (!removed && aspectRatio >= aspectLimit) {
+      removed = true;
+      removalReason = `aspectRatio (${aspectRatio.toFixed(2)} >= ${aspectLimit})`;
+    }
+    if (!removed && strokeArea <= minArea) {
+      removed = true;
+      removalReason = `minArea (${strokeArea} <= ${minArea})`;
+    }
+    if (!removed && !skipCircularity && circ <= 0.05) {
+      removed = true;
+      removalReason = `circularity (${circ.toFixed(3)} <= 0.05)`;
+    }
+
+    if (removed) {
+      console.log("[removed]", {
+        color: r.color,
+        area: strokeArea,
+        density: strokeDensity,
+        aspectRatio: aspectRatio,
+        circularity: circ,
+        removalReason: removalReason
+      });
+      continue;
+    }
+
+    const distToHead = Math.sqrt((cx - tplHeadCenterX) ** 2 + (cy - tplHeadCenterY) ** 2);
+    filteredMerged.push({
+      color: r.color,
+      pixels: r.pixels,
+      cx,
+      cy,
+      minX,
+      maxX,
+      minY,
+      maxY,
+      compW,
+      compH,
+      distToHead
+    });
+  }
+
+  // Black head candidates filter: sort by head distance and slice to keep the closest
+  let nonBlackRegions = [];
+  let blackRegions = [];
+  for (const reg of filteredMerged) {
+    if (reg.color === 'black') {
+      blackRegions.push(reg);
+    } else {
+      nonBlackRegions.push(reg);
+    }
+  }
+  blackRegions.sort((a, b) => a.distToHead - b.distToHead);
+  const keptBlackRegions = blackRegions.slice(0, 5);
+  
+  const finalMergedRegions = [...nonBlackRegions, ...keptBlackRegions];
+
+  console.log("After filtering & merging:", finalMergedRegions.length);
 
   // Create final region candidates with 12% + 10px padding
   const regionsList = [];
-  for (let i = 0; i < mergedRegions.length; i++) {
-    const c = mergedRegions[i];
+  for (let i = 0; i < finalMergedRegions.length; i++) {
+    const c = finalMergedRegions[i];
     let minX = workW, maxX = 0, minY = workH, maxY = 0;
     for (const idx of c.pixels) {
       const cx = idx % workW;
@@ -1748,13 +1808,16 @@ async function runAnalysis() {
       if (cy > maxY) maxY = cy;
     }
 
-    const padX = Math.max((maxX - minX) * 0.12, 10);
-    const padY = Math.max((maxY - minY) * 0.12, 10);
+    const rawWidth = maxX - minX;
+    const rawHeight = maxY - minY;
+
+    const padX = Math.max(rawWidth * 0.12, 10);
+    const padY = Math.max(rawHeight * 0.12, 10);
 
     const bx = Math.max(0, minX - padX);
     const by = Math.max(0, minY - padY);
-    const bw = Math.min(workW - bx, (maxX - minX) + padX * 2);
-    const bh = Math.min(workH - by, (maxY - minY) + padY * 2);
+    const bw = Math.min(workW - bx, rawWidth + padX * 2);
+    const bh = Math.min(workH - by, rawHeight + padY * 2);
 
     regionsList.push({
       id: i,
@@ -1763,8 +1826,8 @@ async function runAnalysis() {
       rawBBox: {
         x: minX / workW,
         y: minY / workH,
-        width: (maxX - minX) / workW,
-        height: (maxY - minY) / workH
+        width: rawWidth / workW,
+        height: rawHeight / workH
       },
       bbox: {
         x: bx / workW,
@@ -2092,27 +2155,8 @@ async function runAnalysis() {
     annCtx.fillText(`#${r.id} ${r.body_part} (${r.pattern})`, bx + 2, by - 4);
   }
 
-  /* ── Phase 6: Diff Map (pixel-perfect strokes on black background) ── */
-  const cDiff = document.getElementById('cDiff'); cDiff.width = workW; cDiff.height = workH;
-  const diffCtx = cDiff.getContext('2d');
-  const diffImg = diffCtx.createImageData(workW, workH);
-  for (let i = 0; i < workW * workH; i++) {
-    const i4 = i * 4;
-    const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
-    const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
-    if (outsideMask[i] === 0 && isStrokePixel(pr, pg, pb, tplR, tplG, tplB)) {
-      diffImg.data[i4] = pr;
-      diffImg.data[i4+1] = pg;
-      diffImg.data[i4+2] = pb;
-      diffImg.data[i4+3] = 255;
-    } else {
-      diffImg.data[i4] = 0;
-      diffImg.data[i4+1] = 0;
-      diffImg.data[i4+2] = 0;
-      diffImg.data[i4+3] = 255;
-    }
-  }
-  diffCtx.putImageData(diffImg, 0, 0);
+  /* ── Phase 6: Diff Map ────────────────────────────────────── */
+  // Diff Map has been generated early in the pipeline
 
   setProgress(96);
 
