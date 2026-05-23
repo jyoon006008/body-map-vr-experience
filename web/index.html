@@ -106,28 +106,6 @@ input[type=file]{display:none}
   <!-- LEFT -->
   <div class="panel panel-l">
     <div class="sec">
-      <div class="sec-label">API Configuration</div>
-      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px;">
-        <div style="display: flex; align-items: center; justify-content: space-between;">
-          <label style="font-size: 11px; color: var(--text-dim);">OpenAI API Key</label>
-          <button class="btn btn-s" style="padding: 2px 6px; font-size: 9px;" onclick="toggleKeyVisibility('openAiKeyInput')">Show/Hide</button>
-        </div>
-        <input type="password" id="openAiKeyInput" placeholder="sk-..." style="width: 100%; box-sizing: border-box; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px; border-radius: var(--radius); font-family: monospace; font-size: 11px;">
-        
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
-          <label style="font-size: 11px; color: var(--text-dim);">Tripo3D API Key</label>
-          <button class="btn btn-s" style="padding: 2px 6px; font-size: 9px;" onclick="toggleKeyVisibility('tripoKeyInput')">Show/Hide</button>
-        </div>
-        <input type="password" id="tripoKeyInput" placeholder="tsk_..." style="width: 100%; box-sizing: border-box; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 6px; border-radius: var(--radius); font-family: monospace; font-size: 11px;">
-        
-        <div style="font-size: 10px; color: var(--text-dim); display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
-          <span id="apiKeysStatus">🔑 Loading keys...</span>
-          <button class="btn btn-s" style="padding: 2px 6px; font-size: 9px;" onclick="fetchKeysFromUnity()">Reload from Unity</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="sec">
       <div class="sec-label">01 — Upload Participant Drawing</div>
       <div class="upload" id="uploadZone" onclick="document.getElementById('fileInput').click()">
         <div class="ico">🖌️</div>
