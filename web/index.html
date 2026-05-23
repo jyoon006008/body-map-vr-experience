@@ -1403,6 +1403,17 @@ async function runAnalysis() {
   const tplHeadCenterX = templateBBox.centerX;
   const tplHeadCenterY = templateBBox.y + templateBBox.height * 0.08;
 
+  const config = {
+    black: { minArea: 60, densityLimit: 0.03, aspectLimit: 20, skipCircularity: true },
+    green: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
+    red: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
+    blue: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
+    orange_brown: { minArea: 250, densityLimit: 0.015, aspectLimit: 12, skipCircularity: false },
+    cyan: { minArea: 250, densityLimit: 0.015, aspectLimit: 12, skipCircularity: false },
+    yellow: { minArea: 100, densityLimit: 0.005, aspectLimit: 20, skipCircularity: false },
+    purple: { minArea: 80, densityLimit: 0.005, aspectLimit: 20, skipCircularity: false }
+  };
+
   for (const [colorCat, mask] of Object.entries(colorMasks)) {
     const comps = connectedComponents(mask, workW, workH);
     let filteredComps = [];
@@ -1424,35 +1435,57 @@ async function runAnalysis() {
       const cx = sumX / comp.length;
       const cy = sumY / comp.length;
 
-      let minArea = (colorCat === 'yellow' || colorCat === 'cyan' || colorCat === 'black') ? 300 : 1000;
-      let densityLimit = 0.08;
-      let aspectLimit = 8;
-      let skipCircularity = false;
-      
-      if (colorCat === 'black') {
-        minArea = 60;
-        densityLimit = 0.03;
-        aspectLimit = 20;
-        skipCircularity = true;
-      }
+      const cfg = config[colorCat] || { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false };
+      const minArea = cfg.minArea;
+      const densityLimit = cfg.densityLimit;
+      const aspectLimit = cfg.aspectLimit;
+      const skipCircularity = cfg.skipCircularity;
 
       const strokeArea = comp.length;
       const bboxArea = compW * compH;
       const strokeDensity = strokeArea / bboxArea;
       const aspectRatio = Math.max(compW, compH) / Math.min(compW, compH);
 
+      const circ = calculateCircularity(comp, workW, workH);
+
+      let removed = false;
+      let removalReason = "";
+
       // Black outline/head filter: upper 25% only for black spiral candidate
       if (colorCat === 'black') {
-        if (cy / workH >= 0.25) continue;
+        if (cy / workH >= 0.25) {
+          removed = true;
+          removalReason = "below head (upper 25% only for black)";
+        }
       }
 
-      if (strokeDensity <= densityLimit) continue;
-      if (aspectRatio >= aspectLimit) continue;
-      if (strokeArea <= minArea) continue;
+      if (!removed && strokeDensity <= densityLimit) {
+        removed = true;
+        removalReason = `density (${strokeDensity.toFixed(4)} <= ${densityLimit})`;
+      }
+      if (!removed && aspectRatio >= aspectLimit) {
+        removed = true;
+        removalReason = `aspectRatio (${aspectRatio.toFixed(2)} >= ${aspectLimit})`;
+      }
+      if (!removed && strokeArea <= minArea) {
+        removed = true;
+        removalReason = `minArea (${strokeArea} <= ${minArea})`;
+      }
+      if (!removed && !skipCircularity && circ <= 0.05) {
+        removed = true;
+        removalReason = `circularity (${circ.toFixed(3)} <= 0.05)`;
+      }
 
-      if (!skipCircularity) {
-        const circ = calculateCircularity(comp, workW, workH);
-        if (circ <= 0.15) continue;
+      if (removed) {
+        console.log("[removed]", {
+          color: colorCat,
+          area: strokeArea,
+          density: strokeDensity,
+          aspectRatio: aspectRatio,
+          circularity: circ,
+          removalReason: removalReason
+        });
+        continue;
       }
 
       const distToHead = Math.sqrt((cx - tplHeadCenterX) ** 2 + (cy - tplHeadCenterY) ** 2);
@@ -1480,77 +1513,109 @@ async function runAnalysis() {
     }
   }
 
-  /* ── Phase 4: Semantic Merge ───────────────────────────────── */
+  console.log("After filtering:", candidates.length);
+
+  /* ── Phase 4: Region Merge ───────────────────────────────── */
   setStatus('Merging adjacent components of same color…');
   setProgress(35);
   await sleep(10);
 
-  let merged = true;
-  while (merged) {
-    merged = false;
+  let changed = true;
+  while (changed) {
+    changed = false;
     for (let i = 0; i < candidates.length; i++) {
       for (let j = i + 1; j < candidates.length; j++) {
         const r1 = candidates[i];
         const r2 = candidates[j];
+        
         if (r1.color === r2.color) {
-          const overlap = getOverlapRatio(r1.bbox, r2.bbox);
-          const iou = getIoU(r1.bbox, r2.bbox);
-
           const cx1 = r1.bbox.x + r1.bbox.width / 2;
           const cy1 = r1.bbox.y + r1.bbox.height / 2;
           const cx2 = r2.bbox.x + r2.bbox.width / 2;
           const cy2 = r2.bbox.y + r2.bbox.height / 2;
-          const centroidDist = Math.sqrt((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2);
 
-          const isLoose1 = r1.strokeDensity < 0.15 && r1.aspectRatio > 3;
-          const isLoose2 = r2.strokeDensity < 0.15 && r2.aspectRatio > 3;
-          
-          let centroidDistLimit = 0.05;
-          if (isLoose1 || isLoose2) {
-            centroidDistLimit = 0.15;
-          }
+          const dist = Math.sqrt((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2);
+          const overlap = getOverlapRatio(r1.bbox, r2.bbox);
 
-          if ((iou > 0.20 || overlap > 0.30) && centroidDist < centroidDistLimit) {
-            console.log(`[merge] Merging color ${r1.color} components, overlap=${overlap.toFixed(2)}, iou=${iou.toFixed(2)}, centroidDist=${centroidDist.toFixed(3)}, limit=${centroidDistLimit}`);
-            const mergedPixels = Array.from(new Set([...r1.pixels, ...r2.pixels]));
+          const maxDim1 = Math.max(r1.bbox.width, r1.bbox.height);
+          const maxDim2 = Math.max(r2.bbox.width, r2.bbox.height);
 
-            let minX = workW, maxX = 0, minY = workH, maxY = 0;
-            for (const idx of mergedPixels) {
-              const cx = idx % workW;
-              const cy = Math.floor(idx / workW);
-              if (cx < minX) minX = cx;
-              if (cx > maxX) maxX = cx;
-              if (cy < minY) minY = cy;
-              if (cy > maxY) maxY = cy;
-            }
+          const horizontalGap = Math.abs(cx1 - cx2);
+          const verticalGap = Math.abs(cy1 - cy2);
 
-            const finalW = maxX - minX + 1;
-            const finalH = maxY - minY + 1;
+          const proximityCondition =
+            horizontalGap < Math.max(maxDim1, maxDim2) * 0.5 &&
+            verticalGap < Math.max(maxDim1, maxDim2) * 0.8;
+
+          const distLimit = Math.min(maxDim1, maxDim2) * 0.45;
+
+          // Special Purple Merge Condition:
+          // sameColor === "purple" AND verticalDistance < bodyHeight * 0.25 AND horizontalOverlapRatio > 0.2
+          const verticalDistance = Math.abs(cy1 - cy2);
+          const xOverlap = Math.max(0, Math.min(r1.bbox.x + r1.bbox.width, r2.bbox.x + r2.bbox.width) - Math.max(r1.bbox.x, r2.bbox.x));
+          const minWidth = Math.min(r1.bbox.width, r2.bbox.width);
+          const horizontalOverlapRatio = minWidth > 0 ? (xOverlap / minWidth) : 0;
+
+          const purpleMergeCondition = (r1.color === 'purple') &&
+            (verticalDistance < (templateBBox.height / workH) * 0.25) &&
+            (horizontalOverlapRatio > 0.2);
+
+          if (
+            purpleMergeCondition ||
+            (proximityCondition && (dist < distLimit || overlap > 0.2))
+          ) {
+            console.log("[merge]", {
+              color: r1.color,
+              dist,
+              distLimit,
+              overlap,
+              isPurpleSpecial: purpleMergeCondition,
+              beforeCount: candidates.length
+            });
+
+            // Pixel union with Map key approach
+            const pixelMap = new Map();
+            [...r1.pixels, ...r2.pixels].forEach(p => {
+              const x = (typeof p === 'object') ? p.x : (p % workW);
+              const y = (typeof p === 'object') ? p.y : Math.floor(p / workW);
+              pixelMap.set(`${x}_${y}`, p);
+            });
+            const mergedPixels = Array.from(pixelMap.values());
+
+            // BBox union
+            const x1 = Math.min(r1.bbox.x, r2.bbox.x);
+            const y1 = Math.min(r1.bbox.y, r2.bbox.y);
+            const x2 = Math.max(r1.bbox.x + r1.bbox.width, r2.bbox.x + r2.bbox.width);
+            const y2 = Math.max(r1.bbox.y + r1.bbox.height, r2.bbox.y + r2.bbox.height);
+            const newW = x2 - x1;
+            const newH = y2 - y1;
 
             r1.pixels = mergedPixels;
-            r1.strokeDensity = mergedPixels.length / (finalW * finalH);
-            r1.aspectRatio = Math.max(finalW, finalH) / Math.min(finalW, finalH);
-            r1.bbox = {
-              x: minX / workW,
-              y: minY / workH,
-              width: finalW / workW,
-              height: finalH / workH
-            };
+            r1.bbox = { x: x1, y: y1, width: newW, height: newH };
+
+            // Recalculate properties
+            const pixelW = newW * workW;
+            const pixelH = newH * workH;
+            r1.strokeDensity = mergedPixels.length / (pixelW * pixelH);
+            r1.aspectRatio = Math.max(pixelW, pixelH) / Math.min(pixelW, pixelH);
 
             candidates.splice(j, 1);
-            merged = true;
+            changed = true;
             break;
           }
         }
       }
-      if (merged) break;
+      if (changed) break;
     }
   }
 
+  const mergedRegions = candidates;
+  console.log("After merging:", mergedRegions.length);
+
   // Create final region candidates with 3px padding
   const regionsList = [];
-  for (let i = 0; i < candidates.length; i++) {
-    const c = candidates[i];
+  for (let i = 0; i < mergedRegions.length; i++) {
+    const c = mergedRegions[i];
     let minX = workW, maxX = 0, minY = workH, maxY = 0;
     for (const idx of c.pixels) {
       const cx = idx % workW;
@@ -1717,6 +1782,36 @@ async function runAnalysis() {
       body_part = localFallback.body_part;
       visual_description = `[로컬 폴백] 화면 ${image_side === 'left' ? '왼쪽' : image_side === 'right' ? '오른쪽' : '가운데'} (${body_side === 'left' ? '왼쪽 신체' : body_side === 'right' ? '오른쪽 신체' : '중앙'}) ${body_part} 부위에 ${r.color} 마커 획이 그려져 있습니다.`;
       confidence = 0.5;
+    }
+
+    // Apply location-based sanity check
+    function isBodyPartValidForY(part, y) {
+      const p = part.toLowerCase();
+      if (y < 0.25) {
+        return p.includes('face') || p.includes('head') || p.includes('neck') || p.includes('spiral');
+      } else if (y >= 0.25 && y < 0.50) {
+        return p.includes('chest') || p.includes('stomach') || p.includes('shoulder') || p.includes('arm') || p.includes('hand') || p.includes('wrist') || p.includes('elbow') || p.includes('back');
+      } else if (y >= 0.50 && y < 0.75) {
+        return p.includes('waist') || p.includes('thigh') || p.includes('leg') || p.includes('hip') || p.includes('knee');
+      } else {
+        return p.includes('lower leg') || p.includes('leg') || p.includes('shin') || p.includes('ankle') || p.includes('foot') || p.includes('feet') || p.includes('toe');
+      }
+    }
+
+    if (r.color === 'black' && ncy < 0.25) {
+      body_part = 'face';
+      pattern = 'spiral';
+      if (!visual_description && aiRes) {
+        visual_description = aiRes.visual_description || '';
+      }
+    } else {
+      if (!isBodyPartValidForY(body_part, ncy)) {
+        const localFallback = inferBodyPartAndSide(ncx * workW, ncy * workH, workW, workH);
+        console.log(`[sanity-check] Invalid body_part "${body_part}" at y=${ncy.toFixed(3)} for color ${r.color}. Falling back to "${localFallback.body_part}".`);
+        body_part = localFallback.body_part;
+        visual_description = `[로컬 폴백] 화면 ${image_side === 'left' ? '왼쪽' : image_side === 'right' ? '오른쪽' : '가운데'} (${body_side === 'left' ? '왼쪽 신체' : body_side === 'right' ? '오른쪽 신체' : '중앙'}) ${body_part} 부위에 ${r.color} 마커 획이 그려져 있습니다.`;
+        confidence = 0.5;
+      }
     }
 
     let color_hex = '#808080';
