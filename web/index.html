@@ -282,12 +282,12 @@ function loadDemoImage() {
     
     // Choose randomly between zigzag crayon filling, coiled spiral loops, or cross-hatching pencil lines
     const style = Math.floor(Math.random() * 3);
-    const loops = 12 + Math.floor(Math.random() * 12);
+    const loops = 14 + Math.floor(Math.random() * 12);
     
     if (style === 0) {
-      // 1. Zigzag Crayon Coloring: back and forth diagonal/horizontal scribbling
-      ctx.lineWidth = 2.5 + Math.random() * 2.5;
-      ctx.globalAlpha = 0.5 + Math.random() * 0.35;
+      // 1. Zigzag Crayon Coloring: dense back and forth diagonal/horizontal scribbling
+      ctx.lineWidth = 3.0 + Math.random() * 3.0;
+      ctx.globalAlpha = 0.6 + Math.random() * 0.3;
       ctx.beginPath();
       
       const angle = Math.random() * Math.PI * 2;
@@ -299,15 +299,15 @@ function loadDemoImage() {
         const ratio = i / (loops * 2);
         const side = i % 2 === 0 ? 1 : -1;
         const perpAngle = angle + Math.PI / 2;
-        const distSide = radius * side * (0.8 + Math.random() * 0.4);
+        const distSide = radius * side * (0.85 + Math.random() * 0.35);
         const distForward = radius * (ratio * 2 - 1);
         
         const tx = px + Math.cos(perpAngle) * distSide + Math.cos(angle) * distForward;
         const ty = py + Math.sin(perpAngle) * distSide + Math.sin(angle) * distForward;
         
         // Add hand-drawn organic curve jitter
-        const cx = (lx + tx) / 2 + (Math.random() - 0.5) * (radius * 0.15);
-        const cy = (ly + ty) / 2 + (Math.random() - 0.5) * (radius * 0.15);
+        const cx = (lx + tx) / 2 + (Math.random() - 0.5) * (radius * 0.12);
+        const cy = (ly + ty) / 2 + (Math.random() - 0.5) * (radius * 0.12);
         ctx.quadraticCurveTo(cx, cy, tx, ty);
         lx = tx;
         ly = ty;
@@ -315,25 +315,25 @@ function loadDemoImage() {
       ctx.stroke();
     } 
     else if (style === 1) {
-      // 2. Coiled Spiral Loops: messy, organic circular scribble marks
-      ctx.lineWidth = 2.0 + Math.random() * 2.0;
-      ctx.globalAlpha = 0.5 + Math.random() * 0.3;
+      // 2. Coiled Spiral Loops: dense, organic circular loops
+      ctx.lineWidth = 2.5 + Math.random() * 2.5;
+      ctx.globalAlpha = 0.55 + Math.random() * 0.3;
       ctx.beginPath();
       ctx.moveTo(px, py);
       
-      const totalPoints = loops * 5;
+      const totalPoints = loops * 6;
       let lx = px;
       let ly = py;
       
       for (let i = 0; i < totalPoints; i++) {
         const t = i / totalPoints;
-        const spiralAngle = i * 0.25;
-        const spiralRadius = radius * t * (0.9 + Math.random() * 0.3);
-        const tx = px + Math.cos(spiralAngle) * spiralRadius + (Math.random() - 0.5) * (radius * 0.08);
-        const ty = py + Math.sin(spiralAngle) * spiralRadius + (Math.random() - 0.5) * (radius * 0.08);
+        const spiralAngle = i * 0.22;
+        const spiralRadius = radius * t * (0.95 + Math.random() * 0.25);
+        const tx = px + Math.cos(spiralAngle) * spiralRadius + (Math.random() - 0.5) * (radius * 0.06);
+        const ty = py + Math.sin(spiralAngle) * spiralRadius + (Math.random() - 0.5) * (radius * 0.06);
         
-        const cx = (lx + tx) / 2 + (Math.random() - 0.5) * (radius * 0.05);
-        const cy = (ly + ty) / 2 + (Math.random() - 0.5) * (radius * 0.05);
+        const cx = (lx + tx) / 2 + (Math.random() - 0.5) * (radius * 0.04);
+        const cy = (ly + ty) / 2 + (Math.random() - 0.5) * (radius * 0.04);
         ctx.quadraticCurveTo(cx, cy, tx, ty);
         lx = tx;
         ly = ty;
@@ -341,32 +341,32 @@ function loadDemoImage() {
       ctx.stroke();
     } 
     else {
-      // 3. Parallel Cross-Hatching: messy overlapping sketch lines
-      ctx.lineWidth = 1.2 + Math.random() * 1.5;
-      ctx.globalAlpha = 0.4 + Math.random() * 0.3;
+      // 3. Parallel Cross-Hatching: dense overlapping sketch lines
+      ctx.lineWidth = 1.5 + Math.random() * 1.5;
+      ctx.globalAlpha = 0.5 + Math.random() * 0.3;
       
       const hatchAngle = Math.random() * Math.PI * 2;
-      const numLines = 15 + Math.floor(Math.random() * 12);
+      const numLines = 20 + Math.floor(Math.random() * 10);
       
       const drawHatchSet = (ang) => {
         const perpAng = ang + Math.PI / 2;
         for (let i = 0; i < numLines; i++) {
-          const ratio = (i / numLines) * 2 - 1; // range [-1, 1]
+          const ratio = (i / numLines) * 2 - 1;
           const offset = ratio * radius;
           const chordHalf = Math.sqrt(Math.max(0, radius * radius - offset * offset)) || 5;
           
-          const startX = px + Math.cos(perpAng) * offset - Math.cos(ang) * chordHalf * (0.8 + Math.random() * 0.3);
-          const startY = py + Math.sin(perpAng) * offset - Math.sin(ang) * chordHalf * (0.8 + Math.random() * 0.3);
-          const endX = px + Math.cos(perpAng) * offset + Math.cos(ang) * chordHalf * (0.8 + Math.random() * 0.3);
-          const endY = py + Math.sin(perpAng) * offset + Math.sin(ang) * chordHalf * (0.8 + Math.random() * 0.3);
+          const startX = px + Math.cos(perpAng) * offset - Math.cos(ang) * chordHalf * (0.85 + Math.random() * 0.25);
+          const startY = py + Math.sin(perpAng) * offset - Math.sin(ang) * chordHalf * (0.85 + Math.random() * 0.25);
+          const endX = px + Math.cos(perpAng) * offset + Math.cos(ang) * chordHalf * (0.85 + Math.random() * 0.25);
+          const endY = py + Math.sin(perpAng) * offset + Math.sin(ang) * chordHalf * (0.85 + Math.random() * 0.25);
           
           ctx.beginPath();
           ctx.moveTo(startX, startY);
           const jitterPoints = 3;
           for (let j = 1; j <= jitterPoints; j++) {
             const jt = j / jitterPoints;
-            const tx = startX + (endX - startX) * jt + (Math.random() - 0.5) * 4;
-            const ty = startY + (endY - startY) * jt + (Math.random() - 0.5) * 4;
+            const tx = startX + (endX - startX) * jt + (Math.random() - 0.5) * 3;
+            const ty = startY + (endY - startY) * jt + (Math.random() - 0.5) * 3;
             ctx.lineTo(tx, ty);
           }
           ctx.stroke();
@@ -374,19 +374,19 @@ function loadDemoImage() {
       };
       
       drawHatchSet(hAngle);
-      if (Math.random() > 0.4) {
+      if (Math.random() > 0.3) {
         drawHatchSet(hAngle + Math.PI / 3 + Math.random() * (Math.PI / 3));
       }
     }
     
     // Add Crayon Wax Splatter Texture: tiny dots inside the scribble zone
-    ctx.globalAlpha = 0.25 + Math.random() * 0.35;
-    const numParticles = 60 + Math.floor(Math.random() * 70);
+    ctx.globalAlpha = 0.3 + Math.random() * 0.3;
+    const numParticles = 80 + Math.floor(Math.random() * 80);
     for (let i = 0; i < numParticles; i++) {
       const ptAngle = Math.random() * Math.PI * 2;
       const ptDist = Math.random() * radius;
-      const ptX = px + Math.cos(ptAngle) * ptDist + (Math.random() - 0.5) * 5;
-      const ptY = py + Math.sin(ptAngle) * ptDist + (Math.random() - 0.5) * 5;
+      const ptX = px + Math.cos(ptAngle) * ptDist + (Math.random() - 0.5) * 4;
+      const ptY = py + Math.sin(ptAngle) * ptDist + (Math.random() - 0.5) * 4;
       
       ctx.beginPath();
       ctx.arc(ptX, ptY, 0.8 + Math.random() * 1.5, 0, Math.PI * 2);
@@ -396,10 +396,11 @@ function loadDemoImage() {
     ctx.restore();
   }
   
-  // Helper function to draw connecting crayon strokes between two nodes
+  // Helper function to draw thick, dense connecting crayon strokes (fully merged)
   function drawConnectingScribble(ctx, p1, p2, color) {
     ctx.save();
     ctx.strokeStyle = color;
+    ctx.fillStyle = color;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     
@@ -409,15 +410,15 @@ function loadDemoImage() {
     const px = -dy / distance;
     const py = dx / distance;
     
-    // 1. Draw 6 to 10 messy wavy crayon lines between the two parts
-    const numLines = 6 + Math.floor(Math.random() * 5);
-    ctx.lineWidth = 1.5 + Math.random() * 1.5;
-    ctx.globalAlpha = 0.4 + Math.random() * 0.3;
+    // 1. Draw very dense, overlapping wavy crayon lines along the path to fuse them
+    const numLines = 16 + Math.floor(Math.random() * 8);
+    ctx.lineWidth = 2.5 + Math.random() * 2.0;
+    ctx.globalAlpha = 0.6 + Math.random() * 0.25;
     
     for (let i = 0; i < numLines; i++) {
       ctx.beginPath();
-      const sAmt = (Math.random() - 0.5) * (p1.r * 0.8);
-      const eAmt = (Math.random() - 0.5) * (p2.r * 0.8);
+      const sAmt = (Math.random() - 0.5) * (p1.r * 0.9);
+      const eAmt = (Math.random() - 0.5) * (p2.r * 0.9);
       
       const startX = p1.x + px * sAmt;
       const startY = p1.y + py * sAmt;
@@ -426,7 +427,7 @@ function loadDemoImage() {
       
       ctx.moveTo(startX, startY);
       
-      const steps = 3;
+      const steps = 4;
       let lx = startX;
       let ly = startY;
       for (let j = 1; j <= steps; j++) {
@@ -434,12 +435,12 @@ function loadDemoImage() {
         const targetX = startX + (endX - startX) * t;
         const targetY = startY + (endY - startY) * t;
         
-        const jitter = (Math.random() - 0.5) * 12;
+        const jitter = (Math.random() - 0.5) * 8;
         const tx = targetX + px * jitter;
         const ty = targetY + py * jitter;
         
-        const cx = (lx + tx) / 2 + (Math.random() - 0.5) * 4;
-        const cy = (ly + ty) / 2 + (Math.random() - 0.5) * 4;
+        const cx = (lx + tx) / 2 + (Math.random() - 0.5) * 3;
+        const cy = (ly + ty) / 2 + (Math.random() - 0.5) * 3;
         ctx.quadraticCurveTo(cx, cy, tx, ty);
         lx = tx;
         ly = ty;
@@ -447,17 +448,20 @@ function loadDemoImage() {
       ctx.stroke();
     }
     
-    // 2. Draw diagonal colored-pencil cross-hatches along the path to fill the body structure naturally
-    const steps = 12;
-    ctx.lineWidth = 1.0 + Math.random();
-    ctx.globalAlpha = 0.35 + Math.random() * 0.25;
-    for (let j = 0; j < steps; j++) {
+    // 2. Draw dense diagonal/cross-hatch shading to merge the shapes completely without gaps
+    const steps = Math.max(10, Math.floor(distance / 5)); // Hatch every 5 pixels
+    ctx.lineWidth = 1.5 + Math.random() * 1.5;
+    ctx.globalAlpha = 0.5 + Math.random() * 0.3;
+    
+    for (let j = 0; j <= steps; j++) {
       const t = j / steps;
       const cx = p1.x + dx * t;
       const cy = p1.y + dy * t;
       const currentRadius = p1.r + (p2.r - p1.r) * t;
-      const strokeHalf = currentRadius * (0.6 + Math.random() * 0.4);
-      const angleOffset = Math.PI / 4 + (Math.random() - 0.5) * 0.2;
+      const strokeHalf = currentRadius * (0.8 + Math.random() * 0.3);
+      
+      // Alternate hatch angles to create solid cross-hatching
+      const angleOffset = (j % 2 === 0 ? Math.PI / 4 : -Math.PI / 4) + (Math.random() - 0.5) * 0.15;
       const hx = Math.cos(angleOffset) * strokeHalf;
       const hy = Math.sin(angleOffset) * strokeHalf;
       
@@ -470,42 +474,26 @@ function loadDemoImage() {
     ctx.restore();
   }
 
-  // 2. Define coordinate centers for ALL body mapping parts on the new slender silhouette
-  const locationsMap = {
-    head: { name: 'head', x: 0.50, y: 0.11, r: 28 },
-    face: { name: 'face', x: 0.50, y: 0.15, r: 24 },
-    neck: { name: 'neck', x: 0.50, y: 0.21, r: 16 },
-    chest: { name: 'chest', x: 0.50, y: 0.31, r: 34 },
-    stomach: { name: 'stomach', x: 0.50, y: 0.42, r: 30 },
-    waist: { name: 'waist', x: 0.50, y: 0.52, r: 26 },
-    left_shoulder: { name: 'left_shoulder', x: 0.40, y: 0.25, r: 18 },
-    left_arm: { name: 'left_arm', x: 0.35, y: 0.35, r: 20 },
-    left_hand: { name: 'left_hand', x: 0.27, y: 0.51, r: 18 },
-    right_shoulder: { name: 'right_shoulder', x: 0.60, y: 0.25, r: 18 },
-    right_arm: { name: 'right_arm', x: 0.65, y: 0.35, r: 20 },
-    right_hand: { name: 'right_hand', x: 0.73, y: 0.51, r: 18 },
-    left_thigh: { name: 'left_thigh', x: 0.43, y: 0.64, r: 22 },
-    left_knee: { name: 'left_knee', x: 0.43, y: 0.78, r: 18 },
-    left_foot: { name: 'left_foot', x: 0.43, y: 0.92, r: 16 },
-    right_thigh: { name: 'right_thigh', x: 0.57, y: 0.64, r: 22 },
-    right_knee: { name: 'right_knee', x: 0.57, y: 0.78, r: 18 },
-    right_foot: { name: 'right_foot', x: 0.57, y: 0.92, r: 16 }
-  };
-  
-  // Chains of adjacent parts that can be drawn continuously
-  const chains = [
-    ['left_hand', 'left_arm', 'left_shoulder', 'chest'],
-    ['right_hand', 'right_arm', 'right_shoulder', 'chest'],
-    ['left_foot', 'left_knee', 'left_thigh', 'waist'],
-    ['right_foot', 'right_knee', 'right_thigh', 'waist'],
-    ['head', 'face', 'neck', 'chest'],
-    ['chest', 'stomach', 'waist']
-  ];
-  
-  // Isolated single parts as fallback or individual drawings
-  const singleParts = [
-    'head', 'face', 'neck', 'chest', 'stomach', 'waist',
-    'left_hand', 'right_hand', 'left_foot', 'right_foot'
+  // 18-point coordinate centers for ALL body mapping parts on the new slender silhouette template
+  const nodes = [
+    { id: 'head', x: 0.50, y: 0.11, r: 28, neighbors: ['face', 'neck'] },
+    { id: 'face', x: 0.50, y: 0.15, r: 24, neighbors: ['head', 'neck'] },
+    { id: 'neck', x: 0.50, y: 0.21, r: 16, neighbors: ['head', 'face', 'chest', 'left_shoulder', 'right_shoulder'] },
+    { id: 'chest', x: 0.50, y: 0.31, r: 34, neighbors: ['neck', 'stomach', 'left_shoulder', 'right_shoulder'] },
+    { id: 'stomach', x: 0.50, y: 0.42, r: 30, neighbors: ['chest', 'waist'] },
+    { id: 'waist', x: 0.50, y: 0.52, r: 26, neighbors: ['stomach', 'left_thigh', 'right_thigh'] },
+    { id: 'left_shoulder', x: 0.40, y: 0.25, r: 18, neighbors: ['neck', 'chest', 'left_arm'] },
+    { id: 'left_arm', x: 0.35, y: 0.35, r: 20, neighbors: ['left_shoulder', 'left_hand'] },
+    { id: 'left_hand', x: 0.27, y: 0.51, r: 18, neighbors: ['left_arm'] },
+    { id: 'right_shoulder', x: 0.60, y: 0.25, r: 18, neighbors: ['neck', 'chest', 'right_arm'] },
+    { id: 'right_arm', x: 0.65, y: 0.35, r: 20, neighbors: ['right_shoulder', 'right_hand'] },
+    { id: 'right_hand', x: 0.73, y: 0.51, r: 18, neighbors: ['right_arm'] },
+    { id: 'left_thigh', x: 0.43, y: 0.64, r: 22, neighbors: ['waist', 'left_knee'] },
+    { id: 'left_knee', x: 0.43, y: 0.78, r: 18, neighbors: ['left_thigh', 'left_foot'] },
+    { id: 'left_foot', x: 0.43, y: 0.92, r: 16, neighbors: ['left_knee'] },
+    { id: 'right_thigh', x: 0.57, y: 0.64, r: 22, neighbors: ['waist', 'right_knee'] },
+    { id: 'right_knee', x: 0.57, y: 0.78, r: 18, neighbors: ['right_thigh', 'right_foot'] },
+    { id: 'right_foot', x: 0.57, y: 0.92, r: 16, neighbors: ['right_knee'] }
   ];
   
   // Art therapy colors (Red, Blue, Green, Yellow, Purple, Orange, Dark Grey)
@@ -519,84 +507,110 @@ function loadDemoImage() {
     '#4A4A4A'  // Dark Grey (Confusion/Grief/Numbness)
   ];
   
-  // Decide how many groups to draw (2 to 4)
-  const numGroups = 2 + Math.floor(Math.random() * 3);
+  // Union-Find / Disjoint-Set forest clustering to group all 18 nodes into connected components
+  const parent = {};
+  nodes.forEach(n => parent[n.id] = n.id);
   
-  // Track already drawn parts to add variety, though slight overlap is allowed
-  const drawnParts = new Set();
+  function find(i) {
+    if (parent[i] === i) return i;
+    return parent[i] = find(parent[i]);
+  }
   
-  for (let g = 0; g < numGroups; g++) {
-    // Choose color
-    const color = colors[Math.floor(Math.random() * colors.length)];
-    
-    // Choose whether to draw a connected chain (65%) or isolated part (35%)
-    const drawChain = Math.random() < 0.65;
-    
-    if (drawChain) {
-      // Pick a random chain
-      const chain = chains[Math.floor(Math.random() * chains.length)];
-      
-      // Determine subset size (at least 2, up to chain.length)
-      const subsetSize = 2 + Math.floor(Math.random() * (chain.length - 1));
-      
-      // We can start from the beginning or the end of the chain
-      const startAtEnd = Math.random() < 0.5;
-      const chainSubset = startAtEnd 
-        ? chain.slice(chain.length - subsetSize)
-        : chain.slice(0, subsetSize);
-        
-      // Draw scribbles at each node in the subset
-      const nodesData = [];
-      chainSubset.forEach(partName => {
-        const loc = locationsMap[partName];
-        const px = loc.x * canvas.width;
-        const py = loc.y * canvas.height;
-        const radius = loc.r * (canvas.width / 723) * (0.8 + Math.random() * 0.4);
-        
-        drawScribble(ctx, px, py, radius, color);
-        nodesData.push({ x: px, y: py, r: radius });
-        drawnParts.add(partName);
-      });
-      
-      // Draw connecting lines between adjacent nodes in the chain subset
-      for (let i = 0; i < nodesData.length - 1; i++) {
-        drawConnectingScribble(ctx, nodesData[i], nodesData[i+1], color);
+  function union(i, j) {
+    const rootI = find(i);
+    const rootJ = find(j);
+    if (rootI !== rootJ) {
+      parent[rootI] = rootJ;
+      return true;
+    }
+    return false;
+  }
+  
+  // Build a list of all unique edges in the human graph structure
+  const edges = [];
+  const edgeSet = new Set();
+  nodes.forEach(n => {
+    n.neighbors.forEach(nbr => {
+      const edgeKey = n.id < nbr ? `${n.id}-${nbr}` : `${nbr}-${n.id}`;
+      if (!edgeSet.has(edgeKey)) {
+        edgeSet.add(edgeKey);
+        edges.push([n.id, nbr]);
       }
-      
-      // 25% chance of secondary color overlay on one of the nodes in the chain
-      if (Math.random() < 0.25) {
-        const overlayNodeIndex = Math.floor(Math.random() * nodesData.length);
-        const node = nodesData[overlayNodeIndex];
-        const secondaryColors = colors.filter(c => c !== color);
-        const secColor = secondaryColors[Math.floor(Math.random() * secondaryColors.length)];
-        drawScribble(ctx, node.x, node.y, node.r * 0.7, secColor);
-      }
-    } 
-    else {
-      // Pick an isolated part
-      let partName = singleParts[Math.floor(Math.random() * singleParts.length)];
-      // Try to find one not drawn yet, up to 5 attempts
-      for (let attempt = 0; attempt < 5; attempt++) {
-        if (!drawnParts.has(partName)) break;
-        partName = singleParts[Math.floor(Math.random() * singleParts.length)];
-      }
-      
-      const loc = locationsMap[partName];
-      const px = loc.x * canvas.width;
-      const py = loc.y * canvas.height;
-      const radius = loc.r * (canvas.width / 723) * (0.8 + Math.random() * 0.5);
-      
-      drawScribble(ctx, px, py, radius, color);
-      drawnParts.add(partName);
-      
-      // 30% chance of secondary color overlay
-      if (Math.random() < 0.3) {
-        const secondaryColors = colors.filter(c => c !== color);
-        const secColor = secondaryColors[Math.floor(Math.random() * secondaryColors.length)];
-        drawScribble(ctx, px, py, radius * 0.75, secColor);
-      }
+    });
+  });
+  
+  // Shuffle edges and union them randomly until we get exactly 3 to 5 connected groups
+  const shuffledEdges = [...edges].sort(() => 0.5 - Math.random());
+  const targetGroups = 3 + Math.floor(Math.random() * 3); // 3, 4, or 5 distinct colors/emotions
+  let currentComponents = nodes.length;
+  
+  const unionedEdges = [];
+  for (let i = 0; i < shuffledEdges.length; i++) {
+    if (currentComponents <= targetGroups) break;
+    const [u, v] = shuffledEdges[i];
+    if (union(u, v)) {
+      unionedEdges.push([u, v]);
+      currentComponents--;
     }
   }
+  
+  // Group the node IDs by their root component ID
+  const groups = {};
+  nodes.forEach(n => {
+    const root = find(n.id);
+    if (!groups[root]) groups[root] = [];
+    groups[root].push(n);
+  });
+  
+  // Shuffle colors to ensure random assignment
+  const shuffledColors = [...colors].sort(() => 0.5 - Math.random());
+  const groupColors = {};
+  let colorIdx = 0;
+  
+  Object.keys(groups).forEach(root => {
+    groupColors[root] = shuffledColors[colorIdx % shuffledColors.length];
+    colorIdx++;
+  });
+  
+  // Draw nodes (isolated shapes are drawn as circles, but all 18 nodes will be drawn)
+  nodes.forEach(node => {
+    const root = find(node.id);
+    const color = groupColors[root];
+    const px = node.x * canvas.width;
+    const py = node.y * canvas.height;
+    const radius = node.r * (canvas.width / 723) * (0.85 + Math.random() * 0.3);
+    
+    drawScribble(ctx, px, py, radius, color);
+    
+    // 25% chance of secondary color overlay inside this node to look more realistic
+    if (Math.random() < 0.25) {
+      const secondaryColors = colors.filter(c => c !== color);
+      const secColor = secondaryColors[Math.floor(Math.random() * secondaryColors.length)];
+      drawScribble(ctx, px, py, radius * 0.7, secColor);
+    }
+  });
+  
+  // Draw connecting dense scribbles for all unioned edges to fuse the components together
+  unionedEdges.forEach(([uId, vId]) => {
+    const uNode = nodes.find(n => n.id === uId);
+    const vNode = nodes.find(n => n.id === vId);
+    const root = find(uId);
+    const color = groupColors[root];
+    
+    const p1 = {
+      x: uNode.x * canvas.width,
+      y: uNode.y * canvas.height,
+      r: uNode.r * (canvas.width / 723)
+    };
+    
+    const p2 = {
+      x: vNode.x * canvas.width,
+      y: vNode.y * canvas.height,
+      r: vNode.r * (canvas.width / 723)
+    };
+    
+    drawConnectingScribble(ctx, p1, p2, color);
+  });
   
   // Generate Data URL and load it
   const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
