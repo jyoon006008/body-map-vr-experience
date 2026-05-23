@@ -200,9 +200,11 @@ const locationsMap = {
   right_hand: { x: 0.73, y: 0.51, r: 18 },
   left_thigh: { x: 0.43, y: 0.64, r: 22 },
   left_knee: { x: 0.43, y: 0.78, r: 18 },
+  left_shin: { x: 0.43, y: 0.85, r: 16 },
   left_foot: { x: 0.43, y: 0.92, r: 16 },
   right_thigh: { x: 0.57, y: 0.64, r: 22 },
   right_knee: { x: 0.57, y: 0.78, r: 18 },
+  right_shin: { x: 0.57, y: 0.85, r: 16 },
   right_foot: { x: 0.57, y: 0.92, r: 16 }
 };
  
@@ -308,11 +310,12 @@ async function callOpenAiVision(imageDataUrl) {
 The drawing is aligned to a body silhouette template.
 Identify the colored scribble regions drawn by the user.
 Choose the body location for each colored region from the following allowed locations list:
-[head, face, neck, chest, stomach, waist, left_shoulder, left_arm, left_hand, right_shoulder, right_arm, right_hand, left_thigh, left_knee, left_foot, right_thigh, right_knee, right_foot]
+[head, face, neck, chest, stomach, waist, left_shoulder, left_arm, left_hand, right_shoulder, right_arm, right_hand, left_thigh, left_knee, left_shin, left_foot, right_thigh, right_knee, right_shin, right_foot]
 
 Note:
 - "left" side refers to the viewer's left (the patient's anatomical right).
 - "right" side refers to the viewer's right (the patient's anatomical left).
+- Be sure to detect black and gray scribbles as well (for example, the black spiral on the head).
 
 For each detected region, specify:
 1. "body_location": Must be one of the exact string keys from the allowed locations list above.
@@ -1167,6 +1170,24 @@ async function runAnalysis() {
   const DIFF_THRESHOLD = 30; // kept for metadata backward compatibility
   const diffMask = new Uint8Array(w * h); // 1 = drawn pixel
   const diffViz = new Uint8Array(w * h * 4); // for visualization
+
+  // Self-calibration: Compute average background paper value inside silhouette
+  let bgValSum = 0;
+  let bgValCount = 0;
+  for (let i = 0; i < w * h; i++) {
+    const i4 = i * 4;
+    if (outsideMask[i] === 0) {
+      const tr = tplData[i4], tg = tplData[i4+1], tb = tplData[i4+2];
+      if (tr < 150 && tg < 150 && tb < 150) continue;
+      const [hh, ss, vv] = rgbToHsv(alignedDrwData[i4], alignedDrwData[i4+1], alignedDrwData[i4+2]);
+      if (ss < 20) {
+        bgValSum += vv;
+        bgValCount++;
+      }
+    }
+  }
+  const bgVal = bgValCount > 0 ? (bgValSum / bgValCount) : 220;
+  console.log(`[Dynamic Scribble Detection] bgVal: ${bgVal}`);
  
   for (let i = 0; i < w * h; i++) {
     const i4 = i * 4;
@@ -1176,15 +1197,13 @@ async function runAnalysis() {
       if (tr < 150 && tg < 150 && tb < 150) continue;
 
       const [hh, ss, vv] = rgbToHsv(alignedDrwData[i4], alignedDrwData[i4+1], alignedDrwData[i4+2]);
-      if (vv >= 71) {
-        const isScribble = (vv > 191) ? (ss >= 51) : (ss >= 36);
-        if (isScribble) {
-          diffMask[i] = 1;
-          diffViz[i4] = alignedDrwData[i4];
-          diffViz[i4+1] = alignedDrwData[i4+1];
-          diffViz[i4+2] = alignedDrwData[i4+2];
-          diffViz[i4+3] = 255;
-        }
+      const isScribble = (ss >= 28) || (vv < bgVal - 40);
+      if (isScribble) {
+        diffMask[i] = 1;
+        diffViz[i4] = alignedDrwData[i4];
+        diffViz[i4+1] = alignedDrwData[i4+1];
+        diffViz[i4+2] = alignedDrwData[i4+2];
+        diffViz[i4+3] = 255;
       }
     }
   }
@@ -1507,6 +1526,27 @@ async function runAnalysis() {
   // BFS Outside Background mask
   const fullOutsideMask = getOutsideMask({ width: fw, data: fullTD }, fw, fh);
  
+  // Self-calibration at full resolution: Compute average background paper value inside silhouette
+  let fullBgValSum = 0;
+  let fullBgValCount = 0;
+  for (let i = 0; i < fw * fh; i++) {
+    const i4 = i * 4;
+    if (fullOutsideMask[i] === 0) {
+      const tr = fullTD[i4], tg = fullTD[i4+1], tb = fullTD[i4+2];
+      if (tr < 150 && tg < 150 && tb < 150) continue;
+      const r = fullD.data[i4];
+      const g = fullD.data[i4+1];
+      const b = fullD.data[i4+2];
+      const [hh, ss, vv] = rgbToHsv(r, g, b);
+      if (ss < 20) {
+        fullBgValSum += vv;
+        fullBgValCount++;
+      }
+    }
+  }
+  const fullBgVal = fullBgValCount > 0 ? (fullBgValSum / fullBgValCount) : 220;
+  console.log(`[Dynamic Scribble Detection - Full Res] fullBgVal: ${fullBgVal}`);
+
   for (let i = 0; i < fw * fh; i++) {
     const i4 = i * 4;
     
@@ -1536,10 +1576,7 @@ async function runAnalysis() {
       const b = fullD.data[i4+2];
       const [hh, ss, vv] = rgbToHsv(r, g, b);
       
-      let isScribble = false;
-      if (vv >= 71) {
-        isScribble = (vv > 191) ? (ss >= 51) : (ss >= 36);
-      }
+      const isScribble = (ss >= 28) || (vv < fullBgVal - 40);
       
       if (isScribble) {
         fullD.data[i4+3] = 255; // Keep drawing stroke opaque
