@@ -929,6 +929,377 @@ function getOverlapRatio(b1, b2) {
   return intersection / Math.min(area1, area2);
 }
 
+function createFinalDiffMask(alignedDrwData, tplData, insideSilhouetteMask, workW, workH) {
+  const finalDiffMask = new Uint8Array(workW * workH);
+  for (let i = 0; i < workW * workH; i++) {
+    const i4 = i * 4;
+    const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
+    const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
+    if (insideSilhouetteMask[i] === 1 && isStrokePixel(pr, pg, pb, tplR, tplG, tplB)) {
+      finalDiffMask[i] = 1;
+    }
+  }
+  return finalDiffMask;
+}
+
+function buildRegionsFromDiffMask(finalDiffMask, alignedDrwData, workW, workH) {
+  const colorMasks = {
+    black: new Uint8Array(workW * workH),
+    green: new Uint8Array(workW * workH),
+    red: new Uint8Array(workW * workH),
+    blue: new Uint8Array(workW * workH),
+    orange_brown: new Uint8Array(workW * workH),
+    cyan: new Uint8Array(workW * workH),
+    yellow: new Uint8Array(workW * workH),
+    purple: new Uint8Array(workW * workH)
+  };
+
+  for (let idx = 0; idx < workW * workH; idx++) {
+    if (finalDiffMask[idx] === 1) {
+      const i4 = idx * 4;
+      const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
+      const [h, s, v] = rgbToHsv(pr, pg, pb);
+      const pColor = classifyPixelColor(h, s, v);
+      const cat = getStandardColorCategory(pColor);
+      if (cat) {
+        colorMasks[cat][idx] = 1;
+      }
+    }
+  }
+
+  const candidates = [];
+  for (const [colorCat, mask] of Object.entries(colorMasks)) {
+    const comps = connectedComponents(mask, workW, workH);
+    for (const comp of comps) {
+      if (comp.length <= 15) continue; // skip tiny noise fragments
+
+      let minX = workW, maxX = 0, minY = workH, maxY = 0;
+      for (const idx of comp) {
+        const cx = idx % workW;
+        const cy = Math.floor(idx / workW);
+        if (cx < minX) minX = cx;
+        if (cx > maxX) maxX = cx;
+        if (cy < minY) minY = cy;
+        if (cy > maxY) maxY = cy;
+      }
+      const compW = maxX - minX + 1;
+      const compH = maxY - minY + 1;
+
+      candidates.push({
+        color: colorCat,
+        pixels: comp,
+        bbox: {
+          x: minX / workW,
+          y: minY / workH,
+          width: compW / workW,
+          height: compH / workH
+        }
+      });
+    }
+  }
+  return candidates;
+}
+
+function mergeSameColorRegions(candidates, workW, workH, templateBBox) {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = 0; i < candidates.length; i++) {
+      for (let j = i + 1; j < candidates.length; j++) {
+        const r1 = candidates[i];
+        const r2 = candidates[j];
+        
+        if (r1.color === r2.color) {
+          const cx1 = r1.bbox.x + r1.bbox.width / 2;
+          const cy1 = r1.bbox.y + r1.bbox.height / 2;
+          const cx2 = r2.bbox.x + r2.bbox.width / 2;
+          const cy2 = r2.bbox.y + r2.bbox.height / 2;
+
+          const dist = Math.sqrt((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2);
+          const overlap = getOverlapRatio(r1.bbox, r2.bbox);
+
+          const maxDim1 = Math.max(r1.bbox.width, r1.bbox.height);
+          const maxDim2 = Math.max(r2.bbox.width, r2.bbox.height);
+
+          const horizontalGap = Math.abs(cx1 - cx2);
+          const verticalGap = Math.abs(cy1 - cy2);
+
+          const proximityCondition =
+            horizontalGap < Math.max(maxDim1, maxDim2) * 0.5 &&
+            verticalGap < Math.max(maxDim1, maxDim2) * 0.8;
+
+          const distLimit = Math.min(maxDim1, maxDim2) * 0.45;
+
+          // Special Purple Merge Condition
+          const verticalDistance = Math.abs(cy1 - cy2);
+          const xOverlap = Math.max(0, Math.min(r1.bbox.x + r1.bbox.width, r2.bbox.x + r2.bbox.width) - Math.max(r1.bbox.x, r2.bbox.x));
+          const minWidth = Math.min(r1.bbox.width, r2.bbox.width);
+          const horizontalOverlapRatio = minWidth > 0 ? (xOverlap / minWidth) : 0;
+
+          const purpleMergeCondition = (r1.color === 'purple') &&
+            (verticalDistance < (templateBBox.height / workH) * 0.25) &&
+            (horizontalOverlapRatio > 0.2);
+
+          if (
+            purpleMergeCondition ||
+            (proximityCondition && (dist < distLimit || overlap > 0.2))
+          ) {
+            console.log("[merge]", {
+              color: r1.color,
+              dist,
+              distLimit,
+              overlap,
+              isPurpleSpecial: purpleMergeCondition,
+              beforeCount: candidates.length
+            });
+
+            // Pixel union with Map key approach
+            const pixelMap = new Map();
+            [...r1.pixels, ...r2.pixels].forEach(p => {
+              const x = (typeof p === 'object') ? p.x : (p % workW);
+              const y = (typeof p === 'object') ? p.y : Math.floor(p / workW);
+              pixelMap.set(`${x}_${y}`, p);
+            });
+            const mergedPixels = Array.from(pixelMap.values());
+
+            // BBox union
+            const x1 = Math.min(r1.bbox.x, r2.bbox.x);
+            const y1 = Math.min(r1.bbox.y, r2.bbox.y);
+            const x2 = Math.max(r1.bbox.x + r1.bbox.width, r2.bbox.x + r2.bbox.width);
+            const y2 = Math.max(r1.bbox.y + r1.bbox.height, r2.bbox.y + r2.bbox.height);
+            const newW = x2 - x1;
+            const newH = y2 - y1;
+
+            r1.pixels = mergedPixels;
+            r1.bbox = { x: x1, y: y1, width: newW, height: newH };
+
+            candidates.splice(j, 1);
+            changed = true;
+            break;
+          }
+        }
+      }
+      if (changed) break;
+    }
+  }
+
+  // Noise Filtering on Merged Regions
+  const config = {
+    black: { minArea: 60, densityLimit: 0.03, aspectLimit: 20, skipCircularity: true },
+    green: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
+    red: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
+    blue: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
+    orange_brown: { minArea: 250, densityLimit: 0.015, aspectLimit: 12, skipCircularity: false },
+    cyan: { minArea: 250, densityLimit: 0.015, aspectLimit: 12, skipCircularity: false },
+    yellow: { minArea: 100, densityLimit: 0.005, aspectLimit: 20, skipCircularity: false },
+    purple: { minArea: 80, densityLimit: 0.005, aspectLimit: 20, skipCircularity: false }
+  };
+
+  const filteredMerged = [];
+  const tplHeadCenterX = templateBBox.centerX;
+  const tplHeadCenterY = templateBBox.y + templateBBox.height * 0.08;
+
+  for (const r of candidates) {
+    let minX = workW, maxX = 0, minY = workH, maxY = 0;
+    for (const idx of r.pixels) {
+      const cx = idx % workW;
+      const cy = Math.floor(idx / workW);
+      if (cx < minX) minX = cx;
+      if (cx > maxX) maxX = cx;
+      if (cy < minY) minY = cy;
+      if (cy > maxY) maxY = cy;
+    }
+    const compW = maxX - minX + 1;
+    const compH = maxY - minY + 1;
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+
+    const cfg = config[r.color] || { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false };
+    const minArea = cfg.minArea;
+    const densityLimit = cfg.densityLimit;
+    const aspectLimit = cfg.aspectLimit;
+    const skipCircularity = cfg.skipCircularity;
+
+    const strokeArea = r.pixels.length;
+    const bboxArea = compW * compH;
+    const strokeDensity = strokeArea / bboxArea;
+    const aspectRatio = Math.max(compW, compH) / Math.min(compW, compH);
+
+    const circ = calculateCircularity(r.pixels, workW, workH);
+
+    let removed = false;
+    let removalReason = "";
+
+    // Black outline/head filter: upper 25% only for black spiral candidate
+    if (r.color === 'black') {
+      if (cy / workH >= 0.25) {
+        removed = true;
+        removalReason = "below head (upper 25% only for black)";
+      }
+    }
+
+    if (!removed && strokeDensity <= densityLimit) {
+      removed = true;
+      removalReason = `density (${strokeDensity.toFixed(4)} <= ${densityLimit})`;
+    }
+    if (!removed && aspectRatio >= aspectLimit) {
+      removed = true;
+      removalReason = `aspectRatio (${aspectRatio.toFixed(2)} >= ${aspectLimit})`;
+    }
+    if (!removed && strokeArea <= minArea) {
+      removed = true;
+      removalReason = `minArea (${strokeArea} <= ${minArea})`;
+    }
+    if (!removed && !skipCircularity && circ <= 0.05) {
+      removed = true;
+      removalReason = `circularity (${circ.toFixed(3)} <= 0.05)`;
+    }
+
+    if (removed) {
+      console.log("[removed]", {
+        color: r.color,
+        area: strokeArea,
+        density: strokeDensity,
+        aspectRatio: aspectRatio,
+        circularity: circ,
+        removalReason: removalReason
+      });
+      continue;
+    }
+
+    const distToHead = Math.sqrt((cx - tplHeadCenterX) ** 2 + (cy - tplHeadCenterY) ** 2);
+    filteredMerged.push({
+      color: r.color,
+      pixels: r.pixels,
+      cx,
+      cy,
+      minX,
+      maxX,
+      minY,
+      maxY,
+      compW,
+      compH,
+      distToHead
+    });
+  }
+
+  // Black head candidates filter: sort by head distance and slice to keep the closest
+  let nonBlackRegions = [];
+  let blackRegions = [];
+  for (const reg of filteredMerged) {
+    if (reg.color === 'black') {
+      blackRegions.push(reg);
+    } else {
+      nonBlackRegions.push(reg);
+    }
+  }
+  blackRegions.sort((a, b) => a.distToHead - b.distToHead);
+  const keptBlackRegions = blackRegions.slice(0, 5);
+  
+  return [...nonBlackRegions, ...keptBlackRegions];
+}
+
+function computePaddedBBoxFromMask(pixels, workW, workH) {
+  let minX = workW, maxX = 0, minY = workH, maxY = 0;
+  for (const idx of pixels) {
+    const cx = idx % workW;
+    const cy = Math.floor(idx / workW);
+    if (cx < minX) minX = cx;
+    if (cx > maxX) maxX = cx;
+    if (cy < minY) minY = cy;
+    if (cy > maxY) maxY = cy;
+  }
+
+  const rawWidth = maxX - minX;
+  const rawHeight = maxY - minY;
+
+  const padX = Math.max(rawWidth * 0.12, 10);
+  const padY = Math.max(rawHeight * 0.12, 10);
+
+  const bx = Math.max(0, minX - padX);
+  const by = Math.max(0, minY - padY);
+  const bw = Math.min(workW - bx, rawWidth + padX * 2);
+  const bh = Math.min(workH - by, rawHeight + padY * 2);
+
+  return {
+    raw: {
+      x: minX / workW,
+      y: minY / workH,
+      width: rawWidth / workW,
+      height: rawHeight / workH
+    },
+    padded: {
+      x: bx / workW,
+      y: by / workH,
+      width: bw / workW,
+      height: bh / workH
+    }
+  };
+}
+
+function getBBoxFromMask(pixels, workW, workH) {
+  const bboxes = computePaddedBBoxFromMask(pixels, workW, workH);
+  return {
+    x: Math.round(bboxes.padded.x * workW),
+    y: Math.round(bboxes.padded.y * workH),
+    width: Math.round(bboxes.padded.width * workW),
+    height: Math.round(bboxes.padded.height * workH)
+  };
+}
+
+function drawAnnotatedPreview(regions, cAlignedD, workW, workH) {
+  const cAnn = document.getElementById('cAnn'); cAnn.width = workW; cAnn.height = workH;
+  const annCtx = cAnn.getContext('2d');
+  annCtx.drawImage(cAlignedD, 0, 0, workW, workH);
+
+  const vizC = ['#ff3355','#33ff88','#3388ff','#ffee33','#ff33ee','#33ffee','#ff8833','#8833ff'];
+  for (let i = 0; i < regions.length; i++) {
+    const r = regions[i], c = vizC[i % vizC.length];
+    const bbox = getBBoxFromMask(r.maskPixels, workW, workH);
+    annCtx.strokeStyle = c; annCtx.lineWidth = 2;
+    annCtx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
+    annCtx.fillStyle = c;
+    annCtx.font = 'bold 11px JetBrains Mono, monospace';
+    annCtx.fillText(`#${r.id} ${r.body_part} (${r.pattern})`, bbox.x + 2, bbox.y - 4);
+  }
+}
+
+function exportUnitySprites(r, alignedDrwData, workW, workH) {
+  const bx = Math.round(r.bbox.x * workW);
+  const by = Math.round(r.bbox.y * workH);
+  const bw = Math.round(r.bbox.width * workW);
+  const bh = Math.round(r.bbox.height * workH);
+
+  let image_base64 = '';
+  if (bw > 0 && bh > 0) {
+    const sprC = document.createElement('canvas'); sprC.width = bw; sprC.height = bh;
+    const sprCtx = sprC.getContext('2d');
+    const sprD = sprCtx.createImageData(bw, bh);
+    const pixelSet = new Set(r.pixels);
+    for (let py = 0; py < bh; py++) {
+      for (let px = 0; px < bw; px++) {
+        const targetX = bx + px;
+        const targetY = by + py;
+        const globalOffset = targetY * workW + targetX;
+        const di = (py * bw + px) * 4;
+        if (pixelSet.has(globalOffset)) {
+          const si = globalOffset * 4;
+          sprD.data[di] = alignedDrwData[si];
+          sprD.data[di+1] = alignedDrwData[si+1];
+          sprD.data[di+2] = alignedDrwData[si+2];
+          sprD.data[di+3] = 255;
+        } else {
+          sprD.data[di] = 0; sprD.data[di+1] = 0; sprD.data[di+2] = 0; sprD.data[di+3] = 0;
+        }
+      }
+    }
+    sprCtx.putImageData(sprD, 0, 0);
+    image_base64 = sprC.toDataURL('image/png').split(',')[1];
+  }
+  return image_base64;
+}
+
+
 function getIoU(box1, box2) {
   const x1 = Math.max(box1.x, box2.x);
   const y1 = Math.max(box1.y, box2.y);
@@ -1494,15 +1865,7 @@ async function runAnalysis() {
   }
 
   // Generate finalStrokeMask / diffMask
-  const finalStrokeMask = new Uint8Array(workW * workH);
-  for (let i = 0; i < workW * workH; i++) {
-    const i4 = i * 4;
-    const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
-    const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
-    if (insideSilhouetteMask[i] === 1 && isStrokePixel(pr, pg, pb, tplR, tplG, tplB)) {
-      finalStrokeMask[i] = 1;
-    }
-  }
+  const finalDiffMask = createFinalDiffMask(alignedDrwData, tplData, insideSilhouetteMask, workW, workH);
 
   // Generate Diff Map (pixel-perfect strokes on black background) early
   const cDiff = document.getElementById('cDiff'); cDiff.width = workW; cDiff.height = workH;
@@ -1510,7 +1873,7 @@ async function runAnalysis() {
   const diffImg = diffCtx.createImageData(workW, workH);
   for (let i = 0; i < workW * workH; i++) {
     const i4 = i * 4;
-    if (finalStrokeMask[i] === 1) {
+    if (finalDiffMask[i] === 1) {
       diffImg.data[i4] = alignedDrwData[i4];
       diffImg.data[i4+1] = alignedDrwData[i4+1];
       diffImg.data[i4+2] = alignedDrwData[i4+2];
@@ -1524,69 +1887,12 @@ async function runAnalysis() {
   }
   diffCtx.putImageData(diffImg, 0, 0);
 
-  // Separate finalStrokeMask by standard color category
-  const colorMasks = {
-    black: new Uint8Array(workW * workH),
-    green: new Uint8Array(workW * workH),
-    red: new Uint8Array(workW * workH),
-    blue: new Uint8Array(workW * workH),
-    orange_brown: new Uint8Array(workW * workH),
-    cyan: new Uint8Array(workW * workH),
-    yellow: new Uint8Array(workW * workH),
-    purple: new Uint8Array(workW * workH)
-  };
-
-  for (let idx = 0; idx < workW * workH; idx++) {
-    if (finalStrokeMask[idx] === 1) {
-      const i4 = idx * 4;
-      const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
-      const [h, s, v] = rgbToHsv(pr, pg, pb);
-      const pColor = classifyPixelColor(h, s, v);
-      const cat = getStandardColorCategory(pColor);
-      if (cat) {
-        colorMasks[cat][idx] = 1;
-      }
-    }
-  }
-
   /* ── Phase 3: Connected Components & Noise Filtering ─────────── */
   setStatus('Filtering components & analyzing shapes…');
   setProgress(30);
   await sleep(10);
 
-  const candidates = [];
-  
-  // Extract connected components for each color mask
-  for (const [colorCat, mask] of Object.entries(colorMasks)) {
-    const comps = connectedComponents(mask, workW, workH);
-    for (const comp of comps) {
-      if (comp.length <= 15) continue; // skip tiny noise fragments
-
-      let minX = workW, maxX = 0, minY = workH, maxY = 0;
-      for (const idx of comp) {
-        const cx = idx % workW;
-        const cy = Math.floor(idx / workW);
-        if (cx < minX) minX = cx;
-        if (cx > maxX) maxX = cx;
-        if (cy < minY) minY = cy;
-        if (cy > maxY) maxY = cy;
-      }
-      const compW = maxX - minX + 1;
-      const compH = maxY - minY + 1;
-
-      candidates.push({
-        color: colorCat,
-        pixels: comp,
-        bbox: {
-          x: minX / workW,
-          y: minY / workH,
-          width: compW / workW,
-          height: compH / workH
-        }
-      });
-    }
-  }
-
+  const candidates = buildRegionsFromDiffMask(finalDiffMask, alignedDrwData, workW, workH);
   console.log("After connected components:", candidates.length);
 
   /* ── Phase 4: Region Merge ───────────────────────────────── */
@@ -1594,247 +1900,21 @@ async function runAnalysis() {
   setProgress(35);
   await sleep(10);
 
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let i = 0; i < candidates.length; i++) {
-      for (let j = i + 1; j < candidates.length; j++) {
-        const r1 = candidates[i];
-        const r2 = candidates[j];
-        
-        if (r1.color === r2.color) {
-          const cx1 = r1.bbox.x + r1.bbox.width / 2;
-          const cy1 = r1.bbox.y + r1.bbox.height / 2;
-          const cx2 = r2.bbox.x + r2.bbox.width / 2;
-          const cy2 = r2.bbox.y + r2.bbox.height / 2;
-
-          const dist = Math.sqrt((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2);
-          const overlap = getOverlapRatio(r1.bbox, r2.bbox);
-
-          const maxDim1 = Math.max(r1.bbox.width, r1.bbox.height);
-          const maxDim2 = Math.max(r2.bbox.width, r2.bbox.height);
-
-          const horizontalGap = Math.abs(cx1 - cx2);
-          const verticalGap = Math.abs(cy1 - cy2);
-
-          const proximityCondition =
-            horizontalGap < Math.max(maxDim1, maxDim2) * 0.5 &&
-            verticalGap < Math.max(maxDim1, maxDim2) * 0.8;
-
-          const distLimit = Math.min(maxDim1, maxDim2) * 0.45;
-
-          // Special Purple Merge Condition:
-          // sameColor === "purple" AND verticalDistance < bodyHeight * 0.25 AND horizontalOverlapRatio > 0.2
-          const verticalDistance = Math.abs(cy1 - cy2);
-          const xOverlap = Math.max(0, Math.min(r1.bbox.x + r1.bbox.width, r2.bbox.x + r2.bbox.width) - Math.max(r1.bbox.x, r2.bbox.x));
-          const minWidth = Math.min(r1.bbox.width, r2.bbox.width);
-          const horizontalOverlapRatio = minWidth > 0 ? (xOverlap / minWidth) : 0;
-
-          const purpleMergeCondition = (r1.color === 'purple') &&
-            (verticalDistance < (templateBBox.height / workH) * 0.25) &&
-            (horizontalOverlapRatio > 0.2);
-
-          if (
-            purpleMergeCondition ||
-            (proximityCondition && (dist < distLimit || overlap > 0.2))
-          ) {
-            console.log("[merge]", {
-              color: r1.color,
-              dist,
-              distLimit,
-              overlap,
-              isPurpleSpecial: purpleMergeCondition,
-              beforeCount: candidates.length
-            });
-
-            // Pixel union with Map key approach
-            const pixelMap = new Map();
-            [...r1.pixels, ...r2.pixels].forEach(p => {
-              const x = (typeof p === 'object') ? p.x : (p % workW);
-              const y = (typeof p === 'object') ? p.y : Math.floor(p / workW);
-              pixelMap.set(`${x}_${y}`, p);
-            });
-            const mergedPixels = Array.from(pixelMap.values());
-
-            // BBox union
-            const x1 = Math.min(r1.bbox.x, r2.bbox.x);
-            const y1 = Math.min(r1.bbox.y, r2.bbox.y);
-            const x2 = Math.max(r1.bbox.x + r1.bbox.width, r2.bbox.x + r2.bbox.width);
-            const y2 = Math.max(r1.bbox.y + r1.bbox.height, r2.bbox.y + r2.bbox.height);
-            const newW = x2 - x1;
-            const newH = y2 - y1;
-
-            r1.pixels = mergedPixels;
-            r1.bbox = { x: x1, y: y1, width: newW, height: newH };
-
-            candidates.splice(j, 1);
-            changed = true;
-            break;
-          }
-        }
-      }
-      if (changed) break;
-    }
-  }
-
-  /* ── Phase 4.5: Noise Filtering on Merged Regions ────────── */
-  const config = {
-    black: { minArea: 60, densityLimit: 0.03, aspectLimit: 20, skipCircularity: true },
-    green: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
-    red: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
-    blue: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
-    orange_brown: { minArea: 250, densityLimit: 0.015, aspectLimit: 12, skipCircularity: false },
-    cyan: { minArea: 250, densityLimit: 0.015, aspectLimit: 12, skipCircularity: false },
-    yellow: { minArea: 100, densityLimit: 0.005, aspectLimit: 20, skipCircularity: false },
-    purple: { minArea: 80, densityLimit: 0.005, aspectLimit: 20, skipCircularity: false }
-  };
-
-  const filteredMerged = [];
-  const tplHeadCenterX = templateBBox.centerX;
-  const tplHeadCenterY = templateBBox.y + templateBBox.height * 0.08;
-
-  for (const r of candidates) {
-    let minX = workW, maxX = 0, minY = workH, maxY = 0;
-    for (const idx of r.pixels) {
-      const cx = idx % workW;
-      const cy = Math.floor(idx / workW);
-      if (cx < minX) minX = cx;
-      if (cx > maxX) maxX = cx;
-      if (cy < minY) minY = cy;
-      if (cy > maxY) maxY = cy;
-    }
-    const compW = maxX - minX + 1;
-    const compH = maxY - minY + 1;
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-
-    const cfg = config[r.color] || { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false };
-    const minArea = cfg.minArea;
-    const densityLimit = cfg.densityLimit;
-    const aspectLimit = cfg.aspectLimit;
-    const skipCircularity = cfg.skipCircularity;
-
-    const strokeArea = r.pixels.length;
-    const bboxArea = compW * compH;
-    const strokeDensity = strokeArea / bboxArea;
-    const aspectRatio = Math.max(compW, compH) / Math.min(compW, compH);
-
-    const circ = calculateCircularity(r.pixels, workW, workH);
-
-    let removed = false;
-    let removalReason = "";
-
-    // Black outline/head filter: upper 25% only for black spiral candidate
-    if (r.color === 'black') {
-      if (cy / workH >= 0.25) {
-        removed = true;
-        removalReason = "below head (upper 25% only for black)";
-      }
-    }
-
-    if (!removed && strokeDensity <= densityLimit) {
-      removed = true;
-      removalReason = `density (${strokeDensity.toFixed(4)} <= ${densityLimit})`;
-    }
-    if (!removed && aspectRatio >= aspectLimit) {
-      removed = true;
-      removalReason = `aspectRatio (${aspectRatio.toFixed(2)} >= ${aspectLimit})`;
-    }
-    if (!removed && strokeArea <= minArea) {
-      removed = true;
-      removalReason = `minArea (${strokeArea} <= ${minArea})`;
-    }
-    if (!removed && !skipCircularity && circ <= 0.05) {
-      removed = true;
-      removalReason = `circularity (${circ.toFixed(3)} <= 0.05)`;
-    }
-
-    if (removed) {
-      console.log("[removed]", {
-        color: r.color,
-        area: strokeArea,
-        density: strokeDensity,
-        aspectRatio: aspectRatio,
-        circularity: circ,
-        removalReason: removalReason
-      });
-      continue;
-    }
-
-    const distToHead = Math.sqrt((cx - tplHeadCenterX) ** 2 + (cy - tplHeadCenterY) ** 2);
-    filteredMerged.push({
-      color: r.color,
-      pixels: r.pixels,
-      cx,
-      cy,
-      minX,
-      maxX,
-      minY,
-      maxY,
-      compW,
-      compH,
-      distToHead
-    });
-  }
-
-  // Black head candidates filter: sort by head distance and slice to keep the closest
-  let nonBlackRegions = [];
-  let blackRegions = [];
-  for (const reg of filteredMerged) {
-    if (reg.color === 'black') {
-      blackRegions.push(reg);
-    } else {
-      nonBlackRegions.push(reg);
-    }
-  }
-  blackRegions.sort((a, b) => a.distToHead - b.distToHead);
-  const keptBlackRegions = blackRegions.slice(0, 5);
-  
-  const finalMergedRegions = [...nonBlackRegions, ...keptBlackRegions];
-
+  const finalMergedRegions = mergeSameColorRegions(candidates, workW, workH, templateBBox);
   console.log("After filtering & merging:", finalMergedRegions.length);
 
   // Create final region candidates with 12% + 10px padding
   const regionsList = [];
   for (let i = 0; i < finalMergedRegions.length; i++) {
     const c = finalMergedRegions[i];
-    let minX = workW, maxX = 0, minY = workH, maxY = 0;
-    for (const idx of c.pixels) {
-      const cx = idx % workW;
-      const cy = Math.floor(idx / workW);
-      if (cx < minX) minX = cx;
-      if (cx > maxX) maxX = cx;
-      if (cy < minY) minY = cy;
-      if (cy > maxY) maxY = cy;
-    }
-
-    const rawWidth = maxX - minX;
-    const rawHeight = maxY - minY;
-
-    const padX = Math.max(rawWidth * 0.12, 10);
-    const padY = Math.max(rawHeight * 0.12, 10);
-
-    const bx = Math.max(0, minX - padX);
-    const by = Math.max(0, minY - padY);
-    const bw = Math.min(workW - bx, rawWidth + padX * 2);
-    const bh = Math.min(workH - by, rawHeight + padY * 2);
+    const bboxes = computePaddedBBoxFromMask(c.pixels, workW, workH);
 
     regionsList.push({
       id: i,
       color: c.color,
       pixels: c.pixels,
-      rawBBox: {
-        x: minX / workW,
-        y: minY / workH,
-        width: rawWidth / workW,
-        height: rawHeight / workH
-      },
-      bbox: {
-        x: bx / workW,
-        y: by / workH,
-        width: bw / workW,
-        height: bh / workH
-      }
+      rawBBox: bboxes.raw,
+      bbox: bboxes.padded
     });
   }
 
@@ -2024,33 +2104,7 @@ async function runAnalysis() {
       width: Math.round(bw * outW / workW), height: Math.round(bh * outH / workH)
     };
 
-    let image_base64 = '';
-    let pxCount = r.pixels.length;
-    if (bw > 0 && bh > 0) {
-      const sprC = document.createElement('canvas'); sprC.width = bw; sprC.height = bh;
-      const sprCtx = sprC.getContext('2d');
-      const sprD = sprCtx.createImageData(bw, bh);
-      const pixelSet = new Set(r.pixels);
-      for (let py = 0; py < bh; py++) {
-        for (let px = 0; px < bw; px++) {
-          const targetX = bx + px;
-          const targetY = by + py;
-          const globalOffset = targetY * workW + targetX;
-          const di = (py * bw + px) * 4;
-          if (pixelSet.has(globalOffset)) {
-            const si = globalOffset * 4;
-            sprD.data[di] = alignedDrwData[si];
-            sprD.data[di+1] = alignedDrwData[si+1];
-            sprD.data[di+2] = alignedDrwData[si+2];
-            sprD.data[di+3] = 255;
-          } else {
-            sprD.data[di] = 0; sprD.data[di+1] = 0; sprD.data[di+2] = 0; sprD.data[di+3] = 0;
-          }
-        }
-      }
-      sprCtx.putImageData(sprD, 0, 0);
-      image_base64 = sprC.toDataURL('image/png').split(',')[1];
-    }
+    let image_base64 = exportUnitySprites(r, alignedDrwData, workW, workH);
 
     regions.push({
       id: r.id,
@@ -2070,7 +2124,8 @@ async function runAnalysis() {
       image_base64: image_base64,
       pixel_count: Math.round(pxCount * (outW * outH) / (workW * workH)),
       area_ratio: +(pxCount / (workW * workH)).toFixed(4),
-      rawBBox: r.rawBBox
+      rawBBox: r.rawBBox,
+      maskPixels: r.pixels
     });
 
     console.log({
@@ -2139,21 +2194,7 @@ async function runAnalysis() {
   setProgress(85);
 
   /* ── Phase 7: Annotated Preview ────────────────────────────── */
-  const cAnn = document.getElementById('cAnn'); cAnn.width = workW; cAnn.height = workH;
-  const annCtx = cAnn.getContext('2d');
-  annCtx.drawImage(cAlignedD, 0, 0, workW, workH);
-
-  const vizC = ['#ff3355','#33ff88','#3388ff','#ffee33','#ff33ee','#33ffee','#ff8833','#8833ff'];
-  for (let i = 0; i < regions.length; i++) {
-    const r = regions[i], c = vizC[i % vizC.length];
-    const bx = (r.bbox?.x||0)*workW, by = (r.bbox?.y||0)*workH;
-    const bw = (r.bbox?.width||0)*workW, bh = (r.bbox?.height||0)*workH;
-    annCtx.strokeStyle = c; annCtx.lineWidth = 2;
-    annCtx.strokeRect(bx, by, bw, bh);
-    annCtx.fillStyle = c;
-    annCtx.font = 'bold 11px JetBrains Mono, monospace';
-    annCtx.fillText(`#${r.id} ${r.body_part} (${r.pattern})`, bx + 2, by - 4);
-  }
+  drawAnnotatedPreview(regions, cAlignedD, workW, workH);
 
   /* ── Phase 6: Diff Map ────────────────────────────────────── */
   // Diff Map has been generated early in the pipeline
