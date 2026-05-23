@@ -1281,6 +1281,30 @@ async function runAnalysis() {
   const tplH = tplMaxY - tplMinY + 1;
   const tplAspect = tplW / tplH;
 
+  let templateBBox = null;
+  if (tplFound) {
+    templateBBox = {
+      x: tplMinX,
+      y: tplMinY,
+      width: tplW,
+      height: tplH,
+      centerX: tplMinX + tplW / 2,
+      centerY: tplMinY + tplH / 2
+    };
+  }
+  if (!templateBBox) {
+    templateBBox = {
+      x: 0,
+      y: 0,
+      width: workW,
+      height: workH,
+      centerX: workW / 2,
+      centerY: workH / 2
+    };
+    console.warn("templateBBox fallback to full canvas");
+  }
+  console.log("templateBBox", templateBBox);
+
   // Pre-generate template outline 30x30 grid for shape matching
   const tplGrid = new Uint8Array(900);
   for (const idx of templatePixels) {
