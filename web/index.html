@@ -1014,37 +1014,44 @@ async function runAnalysis() {
   showProg(true); setProgress(0);
   try {
 
+  const sourceW = drawingImg.width;
+  const sourceH = drawingImg.height;
+  const templateW = templateImg.width;
+  const templateH = templateImg.height;
+  const outW = templateW;
+  const outH = templateH;
+
   /* ── Phase 1: Alignment ────────────────────────────────────── */
   const MAX = 600;
-  const sc = Math.min(1, MAX / Math.max(drawingImg.width, drawingImg.height));
-  const w = Math.round(drawingImg.width * sc);
-  const h = Math.round(drawingImg.height * sc);
-  setStatus(`Aligning image (${w}×${h})…`);
+  const sc = Math.min(1, MAX / Math.max(sourceW, sourceH));
+  const workW = Math.round(sourceW * sc);
+  const workH = Math.round(sourceH * sc);
+  setStatus(`Aligning image (${workW}×${workH})…`);
   setProgress(5);
 
   // Template at work resolution
-  const cT = document.getElementById('cTemplate'); cT.width = w; cT.height = h;
+  const cT = document.getElementById('cTemplate'); cT.width = workW; cT.height = workH;
   const ctxT = cT.getContext('2d', {willReadFrequently: true});
-  ctxT.drawImage(templateImg, 0, 0, w, h);
-  const tplData = ctxT.getImageData(0, 0, w, h).data;
+  ctxT.drawImage(templateImg, 0, 0, workW, workH);
+  const tplData = ctxT.getImageData(0, 0, workW, workH).data;
 
   // Drawing at work resolution
-  const cD = document.getElementById('cDrawing'); cD.width = w; cD.height = h;
+  const cD = document.getElementById('cDrawing'); cD.width = workW; cD.height = workH;
   const ctxD = cD.getContext('2d', {willReadFrequently: true});
-  ctxD.drawImage(drawingImg, 0, 0, w, h);
-  const drwData = ctxD.getImageData(0, 0, w, h).data;
+  ctxD.drawImage(drawingImg, 0, 0, workW, workH);
+  const drwData = ctxD.getImageData(0, 0, workW, workH).data;
 
   // 1a. Template bounding box
-  let tplMinX = w, tplMaxX = 0, tplMinY = h, tplMaxY = 0, tplFound = false;
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const i4 = (y * w + x) * 4;
+  let tplMinX = workW, tplMaxX = 0, tplMinY = workH, tplMaxY = 0, tplFound = false;
+  for (let y = 0; y < workH; y++) for (let x = 0; x < workW; x++) {
+    const i4 = (y * workW + x) * 4;
     if (tplData[i4+3] > 10 && (tplData[i4] < 240 || tplData[i4+1] < 240 || tplData[i4+2] < 240)) {
       if (x < tplMinX) tplMinX = x; if (x > tplMaxX) tplMaxX = x;
       if (y < tplMinY) tplMinY = y; if (y > tplMaxY) tplMaxY = y;
       tplFound = true;
     }
   }
-  if (!tplFound) { tplMinX = 0; tplMaxX = w-1; tplMinY = 0; tplMaxY = h-1; }
+  if (!tplFound) { tplMinX = 0; tplMaxX = workW-1; tplMinY = 0; tplMaxY = workH-1; }
   const tplW = tplMaxX - tplMinX + 1;
   const tplH = tplMaxY - tplMinY + 1;
   const tplAspect = tplW / tplH;
@@ -1053,7 +1060,7 @@ async function runAnalysis() {
   const tplGrid = new Uint8Array(900);
   for (let y = tplMinY; y <= tplMaxY; y++) {
     for (let x = tplMinX; x <= tplMaxX; x++) {
-      const idx = y * w + x;
+      const idx = y * workW + x;
       const i4 = idx * 4;
       if (tplData[i4] < 235 || tplData[i4+1] < 235 || tplData[i4+2] < 235) {
         const nx = (x - tplMinX) / tplW;
@@ -1066,10 +1073,10 @@ async function runAnalysis() {
   }
 
   // 1b. Drawing bounding box (dynamic threshold + shape score selection)
-  const borderX = Math.round(w * 0.08), borderY = Math.round(h * 0.08);
+  const borderX = Math.round(workW * 0.08), borderY = Math.round(workH * 0.08);
   let sumBg = 0, countBg = 0, minAvg = 255, foundDark = false;
-  for (let y = borderY; y < h - borderY; y++) for (let x = borderX; x < w - borderX; x++) {
-    const i4 = (y * w + x) * 4;
+  for (let y = borderY; y < workH - borderY; y++) for (let x = borderX; x < workW - borderX; x++) {
+    const i4 = (y * workW + x) * 4;
     const avg = (drwData[i4] + drwData[i4+1] + drwData[i4+2]) / 3;
     const sat = Math.max(drwData[i4], drwData[i4+1], drwData[i4+2]) - Math.min(drwData[i4], drwData[i4+1], drwData[i4+2]);
     if (sat < 30 && avg > 120) { sumBg += avg; countBg++; }
@@ -1079,27 +1086,27 @@ async function runAnalysis() {
   if (!foundDark) minAvg = 50;
   let outlineThreshold = Math.max(60, Math.min(135, minAvg + (meanBg - minAvg) * 0.35));
 
-  const outlineMask = new Uint8Array(w * h);
-  for (let y = borderY; y < h - borderY; y++) for (let x = borderX; x < w - borderX; x++) {
-    const i4 = (y * w + x) * 4;
+  const outlineMask = new Uint8Array(workW * workH);
+  for (let y = borderY; y < workH - borderY; y++) for (let x = borderX; x < workW - borderX; x++) {
+    const i4 = (y * workW + x) * 4;
     const avg = (drwData[i4] + drwData[i4+1] + drwData[i4+2]) / 3;
     const sat = Math.max(drwData[i4], drwData[i4+1], drwData[i4+2]) - Math.min(drwData[i4], drwData[i4+1], drwData[i4+2]);
     if (avg < outlineThreshold && sat < 45) {
-      outlineMask[y * w + x] = 1;
+      outlineMask[y * workW + x] = 1;
     }
   }
 
-  const outlineComps = connectedComponents(outlineMask, w, h);
+  const outlineComps = connectedComponents(outlineMask, workW, workH);
   let bestOutlineComp = null;
   let bestOutlineScore = -1;
 
   for (const comp of outlineComps) {
     if (comp.length < 200) continue; // Skip noise
 
-    let minX = w, maxX = 0, minY = h, maxY = 0;
+    let minX = workW, maxX = 0, minY = workH, maxY = 0;
     for (const idx of comp) {
-      const cx = idx % w;
-      const cy = Math.floor(idx / w);
+      const cx = idx % workW;
+      const cy = Math.floor(idx / workW);
       if (cx < minX) minX = cx;
       if (cx > maxX) maxX = cx;
       if (cy < minY) minY = cy;
@@ -1110,7 +1117,7 @@ async function runAnalysis() {
     const aspectRatio = compW / compH;
 
     // Filters: height >= 50% and aspect ratio 0.25 to 0.8
-    if (compH < h * 0.5) continue;
+    if (compH < workH * 0.5) continue;
     if (aspectRatio < 0.25 || aspectRatio > 0.8) continue;
 
     // Scores
@@ -1120,8 +1127,8 @@ async function runAnalysis() {
     // Normalize component to 30x30 grid for shape IoU
     const candGrid = new Uint8Array(900);
     for (const idx of comp) {
-      const cx = idx % w;
-      const cy = Math.floor(idx / w);
+      const cx = idx % workW;
+      const cy = Math.floor(idx / workW);
       const nx = (cx - minX) / compW;
       const ny = (cy - minY) / compH;
       const gx = Math.min(29, Math.max(0, Math.round(nx * 29)));
@@ -1143,12 +1150,12 @@ async function runAnalysis() {
     }
   }
 
-  let drwMinX = borderX, drwMaxX = w - borderX - 1, drwMinY = borderY, drwMaxY = h - borderY - 1;
+  let drwMinX = borderX, drwMaxX = workW - borderX - 1, drwMinY = borderY, drwMaxY = workH - borderY - 1;
   if (bestOutlineComp) {
-    let minX = w, maxX = 0, minY = h, maxY = 0;
+    let minX = workW, maxX = 0, minY = workH, maxY = 0;
     for (const idx of bestOutlineComp) {
-      const cx = idx % w;
-      const cy = Math.floor(idx / w);
+      const cx = idx % workW;
+      const cy = Math.floor(idx / workW);
       if (cx < minX) minX = cx;
       if (cx > maxX) maxX = cx;
       if (cy < minY) minY = cy;
@@ -1160,15 +1167,15 @@ async function runAnalysis() {
     drwMaxY = maxY;
     console.log(`[alignment] Selected body silhouette outline with score ${bestOutlineScore.toFixed(3)}, size ${drwMaxX - drwMinX + 1}x${drwMaxY - drwMinY + 1}px`);
   } else {
-    console.warn(`[alignment] Body silhouette outline not found. Using default drawing boundaries.`);
+    console.warn(`[alignment] Body silhouette outline not found. Using default boundaries.`);
   }
 
   // 1c. Aspect-ratio preserving contain-fit alignment
   const cAlignedD = document.createElement('canvas');
-  cAlignedD.width = w; cAlignedD.height = h;
+  cAlignedD.width = workW; cAlignedD.height = workH;
   const ctxAlignedD = cAlignedD.getContext('2d');
   ctxAlignedD.fillStyle = '#ffffff';
-  ctxAlignedD.fillRect(0, 0, w, h);
+  ctxAlignedD.fillRect(0, 0, workW, workH);
 
   const templateBBox = {
     x: tplMinX,
@@ -1194,18 +1201,28 @@ async function runAnalysis() {
   const destX = templateBBox.centerX - destW / 2;
   const destY = templateBBox.centerY - destH / 2;
 
-  const drawSrcX = sourceBodyBBox.x * drawingImg.width / w;
-  const drawSrcY = sourceBodyBBox.y * drawingImg.height / h;
-  const drawSrcW = sourceBodyBBox.width * drawingImg.width / w;
-  const drawSrcH = sourceBodyBBox.height * drawingImg.height / h;
+  // Log values as requested
+  console.log({
+    workW,
+    workH,
+    outW,
+    outH,
+    sourceBodyBBox,
+    templateBBox
+  });
+
+  const drawSrcX = sourceBodyBBox.x * sourceW / workW;
+  const drawSrcY = sourceBodyBBox.y * sourceH / workH;
+  const drawSrcW = sourceBodyBBox.width * sourceW / workW;
+  const drawSrcH = sourceBodyBBox.height * sourceH / workH;
 
   ctxAlignedD.drawImage(drawingImg,
     drawSrcX, drawSrcY, drawSrcW, drawSrcH,
     destX, destY, destW, destH);
-  const alignedDrwData = ctxAlignedD.getImageData(0, 0, w, h).data;
+  const alignedDrwData = ctxAlignedD.getImageData(0, 0, workW, workH).data;
 
   // Compute work-res outsideMask
-  const outsideMask = getOutsideMask({ width: w, data: alignedDrwData }, w, h);
+  const outsideMask = getOutsideMask({ width: workW, data: alignedDrwData }, workW, workH);
 
   setProgress(15);
 
@@ -1216,7 +1233,7 @@ async function runAnalysis() {
   const aiResponse = await fetch(`${API_BASE_URL}/api/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: alignedJpeg, imageWidth: w, imageHeight: h })
+    body: JSON.stringify({ image: alignedJpeg, imageWidth: workW, imageHeight: workH })
   });
 
   if (!aiResponse.ok) {
@@ -1275,8 +1292,8 @@ async function runAnalysis() {
         return false;
       });
       if (cluster) {
-        const mask = new Uint8Array(w * h);
-        for (let i = 0; i < w * h; i++) {
+        const mask = new Uint8Array(workW * workH);
+        for (let i = 0; i < workW * workH; i++) {
           const i4 = i * 4;
           const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
           if (tplR < 235 || tplG < 235 || tplB < 235) continue;
@@ -1286,26 +1303,26 @@ async function runAnalysis() {
             mask[i] = 1;
           }
         }
-        const comps = connectedComponents(mask, w, h);
+        const comps = connectedComponents(mask, workW, workH);
         if (comps.length > 0) {
           let largestComp = comps[0];
           for (const comp of comps) {
             if (comp.length > largestComp.length) largestComp = comp;
           }
-          let minX = w, maxX = 0, minY = h, maxY = 0;
+          let minX = workW, maxX = 0, minY = workH, maxY = 0;
           for (const idx of largestComp) {
-            const cx = idx % w;
-            const cy = Math.floor(idx / w);
+            const cx = idx % workW;
+            const cy = Math.floor(idx / workW);
             if (cx < minX) minX = cx;
             if (cx > maxX) maxX = cx;
             if (cy < minY) minY = cy;
             if (cy > maxY) maxY = cy;
           }
           r.bbox = {
-            x: minX / w,
-            y: minY / h,
-            width: (maxX - minX + 1) / w,
-            height: (maxY - minY + 1) / h
+            x: minX / workW,
+            y: minY / workH,
+            width: (maxX - minX + 1) / workW,
+            height: (maxY - minY + 1) / workH
           };
           console.log(`[analysis] Reconstructed missing bbox for region #${r.id} (${r.color_name})`);
         }
@@ -1316,24 +1333,24 @@ async function runAnalysis() {
   // 2b. Compute coverage of stroke pixels inside OpenAI raw bboxes (Inside silhouette constraint)
   let totalStrokePixels = 0;
   let openaiStrokePixels = 0;
-  const inOpenaiBbox = new Uint8Array(w * h);
+  const inOpenaiBbox = new Uint8Array(workW * workH);
   for (const r of regions) {
     if (r.bbox) {
-      const bx = Math.round(r.bbox.x * w);
-      const by = Math.round(r.bbox.y * h);
-      const bw = Math.round(r.bbox.width * w);
-      const bh = Math.round(r.bbox.height * h);
+      const bx = Math.round(r.bbox.x * workW);
+      const by = Math.round(r.bbox.y * workH);
+      const bw = Math.round(r.bbox.width * workW);
+      const bh = Math.round(r.bbox.height * workH);
       const x1 = Math.max(0, bx), y1 = Math.max(0, by);
-      const x2 = Math.min(w - 1, bx + bw), y2 = Math.min(h - 1, by + bh);
+      const x2 = Math.min(workW - 1, bx + bw), y2 = Math.min(workH - 1, by + bh);
       for (let y = y1; y <= y2; y++) {
         for (let x = x1; x <= x2; x++) {
-          inOpenaiBbox[y * w + x] = 1;
+          inOpenaiBbox[y * workW + x] = 1;
         }
       }
     }
   }
 
-  for (let i = 0; i < w * h; i++) {
+  for (let i = 0; i < workW * workH; i++) {
     const i4 = i * 4;
     const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
     const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
@@ -1352,14 +1369,14 @@ async function runAnalysis() {
   // 2c. Run fallback color segmentation if coverage is low
   if (coverage < coverageThreshold) {
     console.log(`[analysis] Coverage is low. Executing fallback local color segmentation…`);
-    const closeDist = Math.max(w * 0.025, 25);
+    const closeDist = Math.max(workW * 0.025, 25);
     const candidateRegions = [];
 
     for (const cluster of clusters) {
-      const mask = new Uint8Array(w * h);
-      for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-          const i = y * w + x;
+      const mask = new Uint8Array(workW * workH);
+      for (let y = 0; y < workH; y++) {
+        for (let x = 0; x < workW; x++) {
+          const i = y * workW + x;
           const i4 = i * 4;
           const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
           if (tplR < 235 || tplG < 235 || tplB < 235) continue;
@@ -1371,7 +1388,7 @@ async function runAnalysis() {
         }
       }
 
-      const comps = connectedComponents(mask, w, h);
+      const comps = connectedComponents(mask, workW, workH);
       const colorCandidates = [];
 
       for (const comp of comps) {
@@ -1387,11 +1404,11 @@ async function runAnalysis() {
           if (insideCount / comp.length <= 0.85) continue;
         }
 
-        let minX = w, maxX = 0, minY = h, maxY = 0;
+        let minX = workW, maxX = 0, minY = workH, maxY = 0;
         let sumH = 0;
         for (const idx of comp) {
-          const cx = idx % w;
-          const cy = Math.floor(idx / w);
+          const cx = idx % workW;
+          const cy = Math.floor(idx / workW);
           if (cx < minX) minX = cx;
           if (cx > maxX) maxX = cx;
           if (cy < minY) minY = cy;
@@ -1425,10 +1442,10 @@ async function runAnalysis() {
 
             if (areBoxesClose(b1, b2, closeDist) && centerDistance < minDim) {
               colorCandidates[i].pixels = colorCandidates[i].pixels.concat(colorCandidates[j].pixels);
-              let minX = w, maxX = 0, minY = h, maxY = 0;
+              let minX = workW, maxX = 0, minY = workH, maxY = 0;
               for (const idx of colorCandidates[i].pixels) {
-                const cx = idx % w;
-                const cy = Math.floor(idx / w);
+                const cx = idx % workW;
+                const cy = Math.floor(idx / workW);
                 if (cx < minX) minX = cx;
                 if (cx > maxX) maxX = cx;
                 if (cy < minY) minY = cy;
@@ -1501,10 +1518,10 @@ async function runAnalysis() {
     for (const cand of candidateRegions) {
       let maxIoU = 0;
       const cBoxNorm = {
-        x: cand.box.x / w,
-        y: cand.box.y / h,
-        width: cand.box.width / w,
-        height: cand.box.height / h
+        x: cand.box.x / workW,
+        y: cand.box.y / workH,
+        width: cand.box.width / workW,
+        height: cand.box.height / workH
       };
       for (const reg of regions) {
         if (reg.bbox) {
@@ -1516,8 +1533,8 @@ async function runAnalysis() {
       if (maxIoU < 0.20) {
         const cx = cand.box.x + cand.box.width / 2;
         const cy = cand.box.y + cand.box.height / 2;
-        const bodyPart = bodyRegion(cy, h);
-        const side = bodySide(cx, w);
+        const bodyPart = bodyRegion(cy, workH);
+        const side = bodySide(cx, workW);
 
         const cKor = cNameMap[cand.color_name] || cand.color_name;
         const partKor = partKorMap[bodyPart] || bodyPart;
@@ -1546,22 +1563,22 @@ async function runAnalysis() {
 
   /* ── Phase 3 Prep: Connected component tight bbox refinement ── */
   const refinedRegions = [];
-  const closeDist = Math.max(w * 0.025, 25);
+  const closeDist = Math.max(workW * 0.025, 25);
 
   for (const r of regions) {
     if (!r.bbox) continue;
-    const bx_raw = Math.round(r.bbox.x * w);
-    const by_raw = Math.round(r.bbox.y * h);
-    const bw_raw = Math.round(r.bbox.width * w);
-    const bh_raw = Math.round(r.bbox.height * h);
+    const bx_raw = Math.round(r.bbox.x * workW);
+    const by_raw = Math.round(r.bbox.y * workH);
+    const bw_raw = Math.round(r.bbox.width * workW);
+    const bh_raw = Math.round(r.bbox.height * workH);
 
     // Dynamic padding (min 12px, 20%)
     const padX = Math.max(12, Math.round(bw_raw * 0.20));
     const padY = Math.max(12, Math.round(bh_raw * 0.20));
     const x1 = Math.max(0, bx_raw - padX);
     const y1 = Math.max(0, by_raw - padY);
-    const x2 = Math.min(w - 1, bx_raw + bw_raw + padX);
-    const y2 = Math.min(h - 1, by_raw + bh_raw + padY);
+    const x2 = Math.min(workW - 1, bx_raw + bw_raw + padX);
+    const y2 = Math.min(workH - 1, by_raw + bh_raw + padY);
 
     const winW = x2 - x1 + 1;
     const winH = y2 - y1 + 1;
@@ -1571,10 +1588,10 @@ async function runAnalysis() {
       for (let px = 0; px < winW; px++) {
         const targetX = x1 + px;
         const targetY = y1 + py;
-        const idx = (targetY * w + targetX) * 4;
+        const idx = (targetY * workW + targetX) * 4;
         const pr = alignedDrwData[idx], pg = alignedDrwData[idx+1], pb = alignedDrwData[idx+2];
         const tplR = tplData[idx], tplG = tplData[idx+1], tplB = tplData[idx+2];
-        const isInside = outsideMask[targetY * w + targetX] === 0;
+        const isInside = outsideMask[targetY * workW + targetX] === 0;
         if (isInside && isStrokePixel(pr, pg, pb, tplR, tplG, tplB)) {
           localMask[py * winW + px] = 1;
         }
@@ -1600,7 +1617,7 @@ async function runAnalysis() {
         if (cx > maxCompX) maxCompX = cx;
         if (cy < minCompY) minCompY = cy;
         if (cy > maxCompY) maxCompY = cy;
-        globalPixels.push((y1 + cy) * w + (x1 + cx));
+        globalPixels.push((y1 + cy) * workW + (x1 + cx));
       }
 
       const globalBX = x1 + minCompX;
@@ -1613,10 +1630,10 @@ async function runAnalysis() {
         id: refinedRegions.length,
         pixels: globalPixels,
         bbox: {
-          x: globalBX / w,
-          y: globalBY / h,
-          width: globalBW / w,
-          height: globalBH / h
+          x: globalBX / workW,
+          y: globalBY / workH,
+          width: globalBW / workW,
+          height: globalBH / workH
         }
       };
       refinedRegions.push(refinedReg);
@@ -1633,8 +1650,8 @@ async function runAnalysis() {
         const r2 = refinedRegions[j];
         if (r1.color_name === r2.color_name) {
           const iou = getIoU(r1.bbox, r2.bbox);
-          const box1 = { x: r1.bbox.x * w, y: r1.bbox.y * h, width: r1.bbox.width * w, height: r1.bbox.height * h };
-          const box2 = { x: r2.bbox.x * w, y: r2.bbox.y * h, width: r2.bbox.width * w, height: r2.bbox.height * h };
+          const box1 = { x: r1.bbox.x * workW, y: r1.bbox.y * workH, width: r1.bbox.width * workW, height: r1.bbox.height * workH };
+          const box2 = { x: r2.bbox.x * workW, y: r2.bbox.y * workH, width: r2.bbox.width * workW, height: r2.bbox.height * workH };
           
           const cx1 = box1.x + box1.width / 2;
           const cy1 = box1.y + box1.height / 2;
@@ -1648,10 +1665,10 @@ async function runAnalysis() {
             r1.pixels = r1.pixels.concat(r2.pixels);
             
             // Recalculate tight boundary on merged pixels
-            let minX = w, maxX = 0, minY = h, maxY = 0;
+            let minX = workW, maxX = 0, minY = workH, maxY = 0;
             for (const idx of r1.pixels) {
-              const cx = idx % w;
-              const cy = Math.floor(idx / w);
+              const cx = idx % workW;
+              const cy = Math.floor(idx / workW);
               if (cx < minX) minX = cx;
               if (cx > maxX) maxX = cx;
               if (cy < minY) minY = cy;
@@ -1661,14 +1678,14 @@ async function runAnalysis() {
             // Dilated bounding box: 3px padding
             const finalX = Math.max(0, minX - 3);
             const finalY = Math.max(0, minY - 3);
-            const finalW = Math.min(w - 1, maxX + 3) - finalX + 1;
-            const finalH = Math.min(h - 1, maxY + 3) - finalY + 1;
+            const finalW = Math.min(workW - 1, maxX + 3) - finalX + 1;
+            const finalH = Math.min(workH - 1, maxY + 3) - finalY + 1;
 
             r1.bbox = {
-              x: finalX / w,
-              y: finalY / h,
-              width: finalW / w,
-              height: finalH / h
+              x: finalX / workW,
+              y: finalY / workH,
+              width: finalW / workW,
+              height: finalH / workH
             };
             refinedRegions.splice(j, 1);
             mergedAny = true;
@@ -1690,21 +1707,21 @@ async function runAnalysis() {
 
   /* ── Phase 3: Process each region (sprite extraction using pixelSet) ── */
   for (const r of regions) {
-    const bx = Math.round(r.bbox.x * w);
-    const by = Math.round(r.bbox.y * h);
-    const bw = Math.round(r.bbox.width * w);
-    const bh = Math.round(r.bbox.height * h);
+    const bx = Math.round(r.bbox.x * workW);
+    const by = Math.round(r.bbox.y * workH);
+    const bw = Math.round(r.bbox.width * workW);
+    const bh = Math.round(r.bbox.height * workH);
 
     // Full-resolution bounding box
     r.bounding_box = {
-      x: Math.round(bx * fw / w), y: Math.round(by * fh / h),
-      width: Math.round(bw * fw / w), height: Math.round(bh * fh / h)
+      x: Math.round(bx * outW / workW), y: Math.round(by * outH / workH),
+      width: Math.round(bw * outW / workW), height: Math.round(bh * outH / workH)
     };
     const cx = bx + bw / 2, cy = by + bh / 2;
-    r.center = { x: Math.round(cx * fw / w), y: Math.round(cy * fh / h) };
-    r.center_normalized = { x: +(cx / w).toFixed(3), y: +(cy / h).toFixed(3) };
-    r.body_region = r.body_part || bodyRegion(cy, h);
-    r.body_side = r.side || bodySide(cx, w);
+    r.center = { x: Math.round(cx * outW / workW), y: Math.round(cy * outH / workH) };
+    r.center_normalized = { x: +(cx / workW).toFixed(3), y: +(cy / workH).toFixed(3) };
+    r.body_region = r.body_part || bodyRegion(cy, workH);
+    r.body_side = r.side || bodySide(cx, workW);
     r.body_location = r.body_part || 'chest';
 
     // Extract sprite with refined stroke mask (non-stroke -> alpha=0)
@@ -1718,7 +1735,7 @@ async function runAnalysis() {
         for (let px = 0; px < bw; px++) {
           const targetX = bx + px;
           const targetY = by + py;
-          const globalOffset = targetY * w + targetX;
+          const globalOffset = targetY * workW + targetX;
           const di = (py * bw + px) * 4;
           if (pixelSet.has(globalOffset)) {
             const si = globalOffset * 4;
@@ -1737,8 +1754,8 @@ async function runAnalysis() {
       }
       sprCtx.putImageData(sprD, 0, 0);
       r.image_base64 = sprC.toDataURL('image/png').split(',')[1];
-      r.pixel_count = Math.round(pxCount * (fw * fh) / (w * h));
-      r.area_ratio = +(pxCount / (w * h)).toFixed(4);
+      r.pixel_count = Math.round(pxCount * (outW * outH) / (workW * workH));
+      r.area_ratio = +(pxCount / (workW * workH)).toFixed(4);
     } else {
       r.image_base64 = ''; r.pixel_count = 0; r.area_ratio = 0;
     }
@@ -1758,30 +1775,30 @@ async function runAnalysis() {
   setStatus('Rendering transparent body map…');
   await sleep(10);
 
-  const fullC = document.createElement('canvas'); fullC.width = fw; fullC.height = fh;
+  const fullC = document.createElement('canvas'); fullC.width = outW; fullC.height = outH;
   const fullCtx = fullC.getContext('2d', {willReadFrequently: true});
   fullCtx.fillStyle = '#ffffff';
-  fullCtx.fillRect(0, 0, fw, fh);
+  fullCtx.fillRect(0, 0, outW, outH);
 
-  // Contain-fit scale parameters scaled to fw & fh
-  const fullDestX = destX * fw / w;
-  const fullDestY = destY * fh / h;
-  const fullDestW = destW * fw / w;
-  const fullDestH = destH * fh / h;
+  // Contain-fit scale parameters scaled to outW & outH
+  const fullDestX = destX * outW / workW;
+  const fullDestY = destY * outH / workH;
+  const fullDestW = destW * outW / workW;
+  const fullDestH = destH * outH / workH;
 
   fullCtx.drawImage(drawingImg,
     drawSrcX, drawSrcY, drawSrcW, drawSrcH,
     fullDestX, fullDestY, fullDestW, fullDestH);
-  const fullD = fullCtx.getImageData(0, 0, fw, fh);
+  const fullD = fullCtx.getImageData(0, 0, outW, outH);
 
   // Template full-res for outline detection
-  const fullTC = document.createElement('canvas'); fullTC.width = fw; fullTC.height = fh;
-  fullTC.getContext('2d').drawImage(templateImg, 0, 0, fw, fh);
-  const fullTD = fullTC.getContext('2d').getImageData(0, 0, fw, fh).data;
+  const fullTC = document.createElement('canvas'); fullTC.width = outW; fullTC.height = outH;
+  fullTC.getContext('2d').drawImage(templateImg, 0, 0, outW, outH);
+  const fullTD = fullTC.getContext('2d').getImageData(0, 0, outW, outH).data;
 
-  const fullOutsideMask = getOutsideMask({ width: fw, data: fullTD }, fw, fh);
+  const fullOutsideMask = getOutsideMask({ width: outW, data: fullTD }, outW, outH);
 
-  for (let i = 0; i < fw * fh; i++) {
+  for (let i = 0; i < outW * outH; i++) {
     const i4 = i * 4;
     // 1. Outside silhouette → transparent
     if (fullOutsideMask[i] === 1) {
@@ -1809,14 +1826,14 @@ async function runAnalysis() {
   setProgress(88);
 
   /* ── Phase 5: Annotated Preview ────────────────────────────── */
-  const cAnn = document.getElementById('cAnn'); cAnn.width = w; cAnn.height = h;
+  const cAnn = document.getElementById('cAnn'); cAnn.width = workW; cAnn.height = workH;
   const annCtx = cAnn.getContext('2d');
-  annCtx.drawImage(cAlignedD, 0, 0, w, h);
+  annCtx.drawImage(cAlignedD, 0, 0, workW, workH);
   const vizC = ['#ff3355','#33ff88','#3388ff','#ffee33','#ff33ee','#33ffee','#ff8833','#8833ff'];
   for (let i = 0; i < regions.length; i++) {
     const r = regions[i], c = vizC[i % vizC.length];
-    const bx = (r.bbox?.x||0)*w, by = (r.bbox?.y||0)*h;
-    const bw = (r.bbox?.width||0)*w, bh = (r.bbox?.height||0)*h;
+    const bx = (r.bbox?.x||0)*workW, by = (r.bbox?.y||0)*workH;
+    const bw = (r.bbox?.width||0)*workW, bh = (r.bbox?.height||0)*workH;
     annCtx.strokeStyle = c; annCtx.lineWidth = 2;
     annCtx.strokeRect(bx, by, bw, bh);
     annCtx.fillStyle = c;
@@ -1825,10 +1842,10 @@ async function runAnalysis() {
   }
 
   /* ── Phase 6: Diff Map (pixel-perfect strokes on black background) ── */
-  const cDiff = document.getElementById('cDiff'); cDiff.width = w; cDiff.height = h;
+  const cDiff = document.getElementById('cDiff'); cDiff.width = workW; cDiff.height = workH;
   const diffCtx = cDiff.getContext('2d');
-  const diffImg = diffCtx.createImageData(w, h);
-  for (let i = 0; i < w * h; i++) {
+  const diffImg = diffCtx.createImageData(workW, workH);
+  for (let i = 0; i < workW * workH; i++) {
     const i4 = i * 4;
     const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
     const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
@@ -1850,7 +1867,7 @@ async function runAnalysis() {
 
   /* ── Phase 7: Build result JSON ────────────────────────────── */
   const meta = {
-    image_size: { width: fw, height: fh },
+    image_size: { width: outW, height: outH },
     total_regions: regions.length,
     regions: regions
   };
