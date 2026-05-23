@@ -1424,25 +1424,39 @@ async function runAnalysis() {
       const cx = sumX / comp.length;
       const cy = sumY / comp.length;
 
-      // Special black spiral heuristics
+      let minArea = (colorCat === 'yellow' || colorCat === 'cyan' || colorCat === 'black') ? 300 : 1000;
+      let densityLimit = 0.08;
+      let aspectLimit = 8;
+      let skipCircularity = false;
+      
       if (colorCat === 'black') {
-        if (cy / workH >= 0.25) continue;
-        const circ = calculateCircularity(comp, workW, workH);
-        if (circ <= 0.15) continue;
+        minArea = 60;
+        densityLimit = 0.03;
+        aspectLimit = 20;
+        skipCircularity = true;
       }
 
       const strokeArea = comp.length;
       const bboxArea = compW * compH;
       const strokeDensity = strokeArea / bboxArea;
       const aspectRatio = Math.max(compW, compH) / Math.min(compW, compH);
-      const minArea = (colorCat === 'yellow' || colorCat === 'cyan' || colorCat === 'black') ? 300 : 1000;
 
-      if (strokeDensity <= 0.08) continue;
-      if (aspectRatio >= 8) continue;
+      // Black outline/head filter: upper 25% only for black spiral candidate
+      if (colorCat === 'black') {
+        if (cy / workH >= 0.25) continue;
+      }
+
+      if (strokeDensity <= densityLimit) continue;
+      if (aspectRatio >= aspectLimit) continue;
       if (strokeArea <= minArea) continue;
 
+      if (!skipCircularity) {
+        const circ = calculateCircularity(comp, workW, workH);
+        if (circ <= 0.15) continue;
+      }
+
       const distToHead = Math.sqrt((cx - tplHeadCenterX) ** 2 + (cy - tplHeadCenterY) ** 2);
-      filteredComps.push({ comp, cx, cy, minX, maxX, minY, maxY, compW, compH, distToHead });
+      filteredComps.push({ comp, cx, cy, minX, maxX, minY, maxY, compW, compH, strokeDensity, aspectRatio, distToHead });
     }
 
     if (colorCat === 'black') {
@@ -1454,6 +1468,8 @@ async function runAnalysis() {
       candidates.push({
         color: colorCat,
         pixels: item.comp,
+        strokeDensity: item.strokeDensity,
+        aspectRatio: item.aspectRatio,
         bbox: {
           x: item.minX / workW,
           y: item.minY / workH,
@@ -1486,8 +1502,16 @@ async function runAnalysis() {
           const cy2 = r2.bbox.y + r2.bbox.height / 2;
           const centroidDist = Math.sqrt((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2);
 
-          if ((iou > 0.20 || overlap > 0.30) && centroidDist < 0.05) {
-            console.log(`[merge] Merging color ${r1.color} components, overlap=${overlap.toFixed(2)}, iou=${iou.toFixed(2)}, centroidDist=${centroidDist.toFixed(3)}`);
+          const isLoose1 = r1.strokeDensity < 0.15 && r1.aspectRatio > 3;
+          const isLoose2 = r2.strokeDensity < 0.15 && r2.aspectRatio > 3;
+          
+          let centroidDistLimit = 0.05;
+          if (isLoose1 || isLoose2) {
+            centroidDistLimit = 0.15;
+          }
+
+          if ((iou > 0.20 || overlap > 0.30) && centroidDist < centroidDistLimit) {
+            console.log(`[merge] Merging color ${r1.color} components, overlap=${overlap.toFixed(2)}, iou=${iou.toFixed(2)}, centroidDist=${centroidDist.toFixed(3)}, limit=${centroidDistLimit}`);
             const mergedPixels = Array.from(new Set([...r1.pixels, ...r2.pixels]));
 
             let minX = workW, maxX = 0, minY = workH, maxY = 0;
@@ -1500,12 +1524,17 @@ async function runAnalysis() {
               if (cy > maxY) maxY = cy;
             }
 
+            const finalW = maxX - minX + 1;
+            const finalH = maxY - minY + 1;
+
             r1.pixels = mergedPixels;
+            r1.strokeDensity = mergedPixels.length / (finalW * finalH);
+            r1.aspectRatio = Math.max(finalW, finalH) / Math.min(finalW, finalH);
             r1.bbox = {
               x: minX / workW,
               y: minY / workH,
-              width: (maxX - minX + 1) / workW,
-              height: (maxY - minY + 1) / workH
+              width: finalW / workW,
+              height: finalH / workH
             };
 
             candidates.splice(j, 1);
