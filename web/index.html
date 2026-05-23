@@ -183,6 +183,28 @@ let currentTab = 'transparent';
 let unityConnected = false;
 let openAiApiKey = atob('c2stcHJvai05dGVYUk80alh2T0QzdW1odndYVy11eWRRZGw4Y3Nvc0F2d0J5QV83cTdjMmdVSDB5a2hhTm5fd2dXMy15am9iN1RsN0Z1X1ZLWlQzQmxia0ZKRHpjS3JOR1RGdUVGeFN1bHlaYm5mQVQxamtMdVo5R1VuaWtXamV3eUtlcFlCSWdpeDM5RkhpeE9obXdncjhXZFI1STljb0V0b0E=');
 let tripo3DApiKey = atob('dHNrXy1aZXdNY2tlS2xfa1hEdjRVcXhobmxFTmZmRkF5VUFueFFJQm0teHpTOU0=');
+
+// Coordinates mapping on the slender silhouette template (Globally shared)
+const locationsMap = {
+  head: { x: 0.50, y: 0.11, r: 28 },
+  face: { x: 0.50, y: 0.15, r: 24 },
+  neck: { x: 0.50, y: 0.21, r: 16 },
+  chest: { x: 0.50, y: 0.31, r: 34 },
+  stomach: { x: 0.50, y: 0.42, r: 30 },
+  waist: { x: 0.50, y: 0.52, r: 26 },
+  left_shoulder: { x: 0.40, y: 0.25, r: 18 },
+  left_arm: { x: 0.35, y: 0.35, r: 20 },
+  left_hand: { x: 0.27, y: 0.51, r: 18 },
+  right_shoulder: { x: 0.60, y: 0.25, r: 18 },
+  right_arm: { x: 0.65, y: 0.35, r: 20 },
+  right_hand: { x: 0.73, y: 0.51, r: 18 },
+  left_thigh: { x: 0.43, y: 0.64, r: 22 },
+  left_knee: { x: 0.43, y: 0.78, r: 18 },
+  left_foot: { x: 0.43, y: 0.92, r: 16 },
+  right_thigh: { x: 0.57, y: 0.64, r: 22 },
+  right_knee: { x: 0.57, y: 0.78, r: 18 },
+  right_foot: { x: 0.57, y: 0.92, r: 16 }
+};
  
 /* ═══════════════════════════════════════════════
    LOAD TEMPLATE ON STARTUP
@@ -440,27 +462,7 @@ function loadDemoImage() {
     return x - Math.floor(x);
   }
 
-  // Coordinates mapping on the slender silhouette template
-  const locationsMap = {
-    head: { x: 0.50, y: 0.11, r: 28 },
-    face: { x: 0.50, y: 0.15, r: 24 },
-    neck: { x: 0.50, y: 0.21, r: 16 },
-    chest: { x: 0.50, y: 0.31, r: 34 },
-    stomach: { x: 0.50, y: 0.42, r: 30 },
-    waist: { x: 0.50, y: 0.52, r: 26 },
-    left_shoulder: { x: 0.40, y: 0.25, r: 18 },
-    left_arm: { x: 0.35, y: 0.35, r: 20 },
-    left_hand: { x: 0.27, y: 0.51, r: 18 },
-    right_shoulder: { x: 0.60, y: 0.25, r: 18 },
-    right_arm: { x: 0.65, y: 0.35, r: 20 },
-    right_hand: { x: 0.73, y: 0.51, r: 18 },
-    left_thigh: { x: 0.43, y: 0.64, r: 22 },
-    left_knee: { x: 0.43, y: 0.78, r: 18 },
-    left_foot: { x: 0.43, y: 0.92, r: 16 },
-    right_thigh: { x: 0.57, y: 0.64, r: 22 },
-    right_knee: { x: 0.57, y: 0.78, r: 18 },
-    right_foot: { x: 0.57, y: 0.92, r: 16 }
-  };
+  // (locationsMap is now globally defined at the top of the script)
 
   // Helper to interpolate path control points into a dense set of path steps
   function getPathPoints(pointNames, stepSize = 4) {
