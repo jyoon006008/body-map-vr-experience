@@ -67,3 +67,5 @@ Follow these steps to upload this code to GitHub and host the website:
 2. Enter Play mode in Unity. The screen status on the web page will light up green (**🟢 Unity Active**).
 3. Click **▶ Extract & Analyze** on the website.
 4. The transparent avatar image and emotional 3D objects will instantly appear in front of you in the Unity scene!
+
+*최신 파이프라인 정렬 및 분석 성능 고도화 연동 완료.*
