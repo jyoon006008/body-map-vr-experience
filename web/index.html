@@ -1345,8 +1345,8 @@ async function runAnalysis() {
       console.log("OpenAI Vision Analysis Succeeded with", regions.length, "regions.");
     } catch (err) {
       console.error("OpenAI analysis failed. Falling back to local CV...", err);
-      setStatus("⚠️ OpenAI analysis failed. Falling back to local CV...");
-      await sleep(1500);
+      setStatus(`⚠️ OpenAI analysis failed: ${err.message || err}. Falling back to local CV...`);
+      await sleep(4000);
     }
   }
   
