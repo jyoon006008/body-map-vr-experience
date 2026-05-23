@@ -1278,6 +1278,27 @@ function splitAndReassignOutliers(regions, workW, workH, bodyHeight, alignedDrwD
   return regions;
 }
 
+function isRegionColorCompatible(r1, r2) {
+  const c1 = r1.color;
+  const c2 = r2.color;
+  if (c1 === c2) return true;
+  
+  const isGreenCyan = (c1 === 'green' && c2 === 'cyan') || (c1 === 'cyan' && c2 === 'green');
+  const isBlueCyan = (c1 === 'blue' && c2 === 'cyan') || (c1 === 'cyan' && c2 === 'blue');
+  const isYellowOrange = (c1 === 'orange_brown' && c2 === 'yellow') || (c1 === 'yellow' && c2 === 'orange_brown');
+  
+  return isGreenCyan || isBlueCyan || isYellowOrange;
+}
+
+function reassignmentScore(fragment, region) {
+  if (!isRegionColorCompatible(fragment, region)) return Infinity;
+
+  const d = bboxDistance(fragment.bbox, region.bbox);
+  const c = colorDistance(fragment.avgColor, region.avgColor);
+
+  return d * 1.0 + c * 2.5;
+}
+
 function reassignSmallFragments(regions, workW, workH, alignedDrwData) {
   let changed = true;
   while (changed) {
@@ -1288,82 +1309,111 @@ function reassignSmallFragments(regions, workW, workH, alignedDrwData) {
       const bboxArea = fragment.bbox.width * fragment.bbox.height;
       
       if (pixelCount < 800 || bboxArea < 1500) {
-        let nearestRegion = null;
-        let minDist = Infinity;
+        const fragY = (fragment.bbox.y + fragment.bbox.height / 2) / workH;
         
+        function isValidCandidate(target) {
+          const dist = bboxDistance(fragment.bbox, target.bbox);
+          if (dist >= 40) return false;
+          
+          const targetY = (target.bbox.y + target.bbox.height / 2) / workH;
+          if (Math.abs(fragY - targetY) >= 0.15) return false;
+          
+          const cDist = colorDistance(fragment.avgColor, target.avgColor);
+          if (cDist >= 80) return false;
+          
+          return true;
+        }
+
+        let bestTarget = null;
+        let bestScore = Infinity;
+
+        // Step 1: Search for sameColor candidate
         for (let j = 0; j < regions.length; j++) {
           if (i === j) continue;
           const other = regions[j];
-          const dist = bboxDistance(fragment.bbox, other.bbox);
-          if (dist < minDist) {
-            minDist = dist;
-            nearestRegion = other;
+          if (other.color === fragment.color && isValidCandidate(other)) {
+            const score = reassignmentScore(fragment, other);
+            if (score < bestScore) {
+              bestScore = score;
+              bestTarget = other;
+            }
           }
         }
-        
-        if (nearestRegion && minDist < 40) {
-          const fragY = (fragment.bbox.y + fragment.bbox.height / 2) / workH;
-          const nearY = (nearestRegion.bbox.y + nearestRegion.bbox.height / 2) / workH;
-          const cDist = colorDistance(fragment.avgColor, nearestRegion.avgColor);
-          
-          if (cDist < 80 && Math.abs(fragY - nearY) < 0.15) {
-            console.log(`[reassign-fragment] Merging fragment (${fragment.color}) into nearestRegion (${nearestRegion.color}), dist=${minDist.toFixed(1)}, cDist=${cDist.toFixed(1)}`);
-            
-            const mergedPixels = [...nearestRegion.pixels, ...fragment.pixels];
-            nearestRegion.pixels = mergedPixels;
-            
-            let minX = workW, maxX = 0, minY = workH, maxY = 0;
-            for (const idx of mergedPixels) {
-              const cx = idx % workW;
-              const cy = Math.floor(idx / workW);
-              if (cx < minX) minX = cx;
-              if (cx > maxX) maxX = cx;
-              if (cy < minY) minY = cy;
-              if (cy > maxY) maxY = cy;
-            }
-            nearestRegion.bbox = {
-              x: minX,
-              y: minY,
-              width: maxX - minX + 1,
-              height: maxY - minY + 1
-            };
-            
-            let sumR = 0, sumG = 0, sumB = 0;
-            for (const idx of mergedPixels) {
-              const i4 = idx * 4;
-              sumR += alignedDrwData[i4];
-              sumG += alignedDrwData[i4+1];
-              sumB += alignedDrwData[i4+2];
-            }
-            nearestRegion.avgColor = {
-              r: sumR / mergedPixels.length,
-              g: sumG / mergedPixels.length,
-              b: sumB / mergedPixels.length
-            };
-            
-            const isGreenCyan = (nearestRegion.color === 'green' || nearestRegion.color === 'cyan');
-            const isBlueCyan = (nearestRegion.color === 'blue' || nearestRegion.color === 'cyan');
-            if (isGreenCyan || isBlueCyan) {
-              let greenCount = 0;
-              let cyanCount = 0;
-              let blueCount = 0;
-              for (const idx of mergedPixels) {
-                const col = classifyPixelColorFromAlignedDrawing(alignedDrwData, idx);
-                if (col === 'green') greenCount++;
-                else if (col === 'cyan') cyanCount++;
-                else if (col === 'blue') blueCount++;
-              }
-              if (isGreenCyan && (greenCount > 0 || cyanCount > 0)) {
-                nearestRegion.color = (greenCount >= cyanCount) ? 'green' : 'cyan';
-              } else if (isBlueCyan && (blueCount > 0 || cyanCount > 0)) {
-                nearestRegion.color = (blueCount >= cyanCount) ? 'blue' : 'cyan';
+
+        // Step 2: If no sameColor candidate, search for allowedSimilarColorPair candidate
+        if (!bestTarget) {
+          for (let j = 0; j < regions.length; j++) {
+            if (i === j) continue;
+            const other = regions[j];
+            if (other.color !== fragment.color && isRegionColorCompatible(fragment, other) && isValidCandidate(other)) {
+              const score = reassignmentScore(fragment, other);
+              if (score < bestScore) {
+                bestScore = score;
+                bestTarget = other;
               }
             }
-            
-            regions.splice(i, 1);
-            changed = true;
-            break;
           }
+        }
+
+        if (bestTarget) {
+          const dist = bboxDistance(fragment.bbox, bestTarget.bbox);
+          const cDist = colorDistance(fragment.avgColor, bestTarget.avgColor);
+          console.log(`[reassign-fragment] Merging fragment (${fragment.color}) into target (${bestTarget.color}), dist=${dist.toFixed(1)}, cDist=${cDist.toFixed(1)}, score=${bestScore.toFixed(1)}`);
+          
+          const mergedPixels = [...bestTarget.pixels, ...fragment.pixels];
+          bestTarget.pixels = mergedPixels;
+          
+          let minX = workW, maxX = 0, minY = workH, maxY = 0;
+          for (const idx of mergedPixels) {
+            const cx = idx % workW;
+            const cy = Math.floor(idx / workW);
+            if (cx < minX) minX = cx;
+            if (cx > maxX) maxX = cx;
+            if (cy < minY) minY = cy;
+            if (cy > maxY) maxY = cy;
+          }
+          bestTarget.bbox = {
+            x: minX,
+            y: minY,
+            width: maxX - minX + 1,
+            height: maxY - minY + 1
+          };
+          
+          let sumR = 0, sumG = 0, sumB = 0;
+          for (const idx of mergedPixels) {
+            const i4 = idx * 4;
+            sumR += alignedDrwData[i4];
+            sumG += alignedDrwData[i4+1];
+            sumB += alignedDrwData[i4+2];
+          }
+          bestTarget.avgColor = {
+            r: sumR / mergedPixels.length,
+            g: sumG / mergedPixels.length,
+            b: sumB / mergedPixels.length
+          };
+          
+          const isGreenCyan = (bestTarget.color === 'green' || bestTarget.color === 'cyan');
+          const isBlueCyan = (bestTarget.color === 'blue' || bestTarget.color === 'cyan');
+          if (isGreenCyan || isBlueCyan) {
+            let greenCount = 0;
+            let cyanCount = 0;
+            let blueCount = 0;
+            for (const idx of mergedPixels) {
+              const col = classifyPixelColorFromAlignedDrawing(alignedDrwData, idx);
+              if (col === 'green') greenCount++;
+              else if (col === 'cyan') cyanCount++;
+              else if (col === 'blue') blueCount++;
+            }
+            if (isGreenCyan && (greenCount > 0 || cyanCount > 0)) {
+              bestTarget.color = (greenCount >= cyanCount) ? 'green' : 'cyan';
+            } else if (isBlueCyan && (blueCount > 0 || cyanCount > 0)) {
+              bestTarget.color = (blueCount >= cyanCount) ? 'blue' : 'cyan';
+            }
+          }
+          
+          regions.splice(i, 1);
+          changed = true;
+          break;
         }
       }
     }
