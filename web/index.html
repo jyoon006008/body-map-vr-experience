@@ -272,19 +272,143 @@ function loadDemoImage() {
   // 1. Draw the slender silhouette template background
   ctx.drawImage(templateImg, 0, 0);
   
+  // Helper function to draw organic human-like scribble/painting texture
+  function drawScribble(ctx, px, py, radius, color) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    
+    // Choose randomly between zigzag crayon filling, coiled spiral loops, or cross-hatching pencil lines
+    const style = Math.floor(Math.random() * 3);
+    const loops = 12 + Math.floor(Math.random() * 12);
+    
+    if (style === 0) {
+      // 1. Zigzag Crayon Coloring: back and forth diagonal/horizontal scribbling
+      ctx.lineWidth = 2.5 + Math.random() * 2.5;
+      ctx.globalAlpha = 0.5 + Math.random() * 0.35;
+      ctx.beginPath();
+      
+      const angle = Math.random() * Math.PI * 2;
+      let lx = px + Math.cos(angle) * radius;
+      let ly = py + Math.sin(angle) * radius;
+      ctx.moveTo(lx, ly);
+      
+      for (let i = 0; i < loops * 2; i++) {
+        const ratio = i / (loops * 2);
+        const side = i % 2 === 0 ? 1 : -1;
+        const perpAngle = angle + Math.PI / 2;
+        const distSide = radius * side * (0.8 + Math.random() * 0.4);
+        const distForward = radius * (ratio * 2 - 1);
+        
+        const tx = px + Math.cos(perpAngle) * distSide + Math.cos(angle) * distForward;
+        const ty = py + Math.sin(perpAngle) * distSide + Math.sin(angle) * distForward;
+        
+        // Add hand-drawn organic curve jitter
+        const cx = (lx + tx) / 2 + (Math.random() - 0.5) * (radius * 0.15);
+        const cy = (ly + ty) / 2 + (Math.random() - 0.5) * (radius * 0.15);
+        ctx.quadraticCurveTo(cx, cy, tx, ty);
+        lx = tx;
+        ly = ty;
+      }
+      ctx.stroke();
+    } 
+    else if (style === 1) {
+      // 2. Coiled Spiral Loops: messy, organic circular scribble marks
+      ctx.lineWidth = 2.0 + Math.random() * 2.0;
+      ctx.globalAlpha = 0.5 + Math.random() * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      
+      const totalPoints = loops * 5;
+      let lx = px;
+      let ly = py;
+      
+      for (let i = 0; i < totalPoints; i++) {
+        const t = i / totalPoints;
+        const spiralAngle = i * 0.25;
+        const spiralRadius = radius * t * (0.9 + Math.random() * 0.3);
+        const tx = px + Math.cos(spiralAngle) * spiralRadius + (Math.random() - 0.5) * (radius * 0.08);
+        const ty = py + Math.sin(spiralAngle) * spiralRadius + (Math.random() - 0.5) * (radius * 0.08);
+        
+        const cx = (lx + tx) / 2 + (Math.random() - 0.5) * (radius * 0.05);
+        const cy = (ly + ty) / 2 + (Math.random() - 0.5) * (radius * 0.05);
+        ctx.quadraticCurveTo(cx, cy, tx, ty);
+        lx = tx;
+        ly = ty;
+      }
+      ctx.stroke();
+    } 
+    else {
+      // 3. Parallel Cross-Hatching: messy overlapping sketch lines
+      ctx.lineWidth = 1.2 + Math.random() * 1.5;
+      ctx.globalAlpha = 0.4 + Math.random() * 0.3;
+      
+      const hatchAngle = Math.random() * Math.PI * 2;
+      const numLines = 15 + Math.floor(Math.random() * 12);
+      
+      const drawHatchSet = (ang) => {
+        const perpAng = ang + Math.PI / 2;
+        for (let i = 0; i < numLines; i++) {
+          const ratio = (i / numLines) * 2 - 1; // range [-1, 1]
+          const offset = ratio * radius;
+          const chordHalf = Math.sqrt(Math.max(0, radius * radius - offset * offset)) || 5;
+          
+          const startX = px + Math.cos(perpAng) * offset - Math.cos(ang) * chordHalf * (0.8 + Math.random() * 0.3);
+          const startY = py + Math.sin(perpAng) * offset - Math.sin(ang) * chordHalf * (0.8 + Math.random() * 0.3);
+          const endX = px + Math.cos(perpAng) * offset + Math.cos(ang) * chordHalf * (0.8 + Math.random() * 0.3);
+          const endY = py + Math.sin(perpAng) * offset + Math.sin(ang) * chordHalf * (0.8 + Math.random() * 0.3);
+          
+          ctx.beginPath();
+          ctx.moveTo(startX, startY);
+          const jitterPoints = 3;
+          for (let j = 1; j <= jitterPoints; j++) {
+            const jt = j / jitterPoints;
+            const tx = startX + (endX - startX) * jt + (Math.random() - 0.5) * 4;
+            const ty = startY + (endY - startY) * jt + (Math.random() - 0.5) * 4;
+            ctx.lineTo(tx, ty);
+          }
+          ctx.stroke();
+        }
+      };
+      
+      drawHatchSet(hAngle);
+      if (Math.random() > 0.4) {
+        drawHatchSet(hAngle + Math.PI / 3 + Math.random() * (Math.PI / 3));
+      }
+    }
+    
+    // Add Crayon Wax Splatter Texture: tiny dots inside the scribble zone
+    ctx.globalAlpha = 0.25 + Math.random() * 0.35;
+    const numParticles = 60 + Math.floor(Math.random() * 70);
+    for (let i = 0; i < numParticles; i++) {
+      const ptAngle = Math.random() * Math.PI * 2;
+      const ptDist = Math.random() * radius;
+      const ptX = px + Math.cos(ptAngle) * ptDist + (Math.random() - 0.5) * 5;
+      const ptY = py + Math.sin(ptAngle) * ptDist + (Math.random() - 0.5) * 5;
+      
+      ctx.beginPath();
+      ctx.arc(ptX, ptY, 0.8 + Math.random() * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    ctx.restore();
+  }
+  
   // 2. Define possible body mapping locations (normalized x, y on slender silhouette)
   const locations = [
-    { name: 'head', x: 0.50, y: 0.13, r: 25 },
-    { name: 'throat', x: 0.50, y: 0.22, r: 15 },
-    { name: 'chest', x: 0.50, y: 0.33, r: 35 },
-    { name: 'stomach', x: 0.50, y: 0.50, r: 30 },
-    { name: 'pelvis', x: 0.50, y: 0.62, r: 25 },
-    { name: 'left_hand', x: 0.31, y: 0.51, r: 20 },
-    { name: 'right_hand', x: 0.69, y: 0.51, r: 20 },
-    { name: 'left_knee', x: 0.46, y: 0.77, r: 18 },
-    { name: 'right_knee', x: 0.54, y: 0.77, r: 18 },
-    { name: 'left_foot', x: 0.46, y: 0.94, r: 15 },
-    { name: 'right_foot', x: 0.54, y: 0.94, r: 15 }
+    { name: 'head', x: 0.50, y: 0.13, r: 26 },
+    { name: 'throat', x: 0.50, y: 0.22, r: 16 },
+    { name: 'chest', x: 0.50, y: 0.33, r: 36 },
+    { name: 'stomach', x: 0.50, y: 0.50, r: 32 },
+    { name: 'pelvis', x: 0.50, y: 0.62, r: 26 },
+    { name: 'left_hand', x: 0.31, y: 0.51, r: 22 },
+    { name: 'right_hand', x: 0.69, y: 0.51, r: 22 },
+    { name: 'left_knee', x: 0.46, y: 0.77, r: 20 },
+    { name: 'right_knee', x: 0.54, y: 0.77, r: 20 },
+    { name: 'left_foot', x: 0.46, y: 0.94, r: 16 },
+    { name: 'right_foot', x: 0.54, y: 0.94, r: 16 }
   ];
   
   // Art therapy colors (Red, Blue, Green, Yellow, Purple, Orange)
@@ -306,39 +430,19 @@ function loadDemoImage() {
   selectedLocs.forEach(loc => {
     const px = loc.x * canvas.width;
     const py = loc.y * canvas.height;
-    const baseRadius = loc.r * (canvas.width / 723) * (0.8 + Math.random() * 0.5);
+    const radius = loc.r * (canvas.width / 723) * (0.8 + Math.random() * 0.5);
+    
+    // Choose primary color
     const color = colors[Math.floor(Math.random() * colors.length)];
     
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.lineWidth = 6 + Math.random() * 6;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    // Draw the main organic scribble
+    drawScribble(ctx, px, py, radius, color);
     
-    // Draw overlapping strokes for a scribble/hand-drawn look
-    if (Math.random() > 0.4) {
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      const points = 5 + Math.floor(Math.random() * 8);
-      for (let i = 0; i < points; i++) {
-        const theta = (i / points) * Math.PI * 2 + (Math.random() * 0.5);
-        const distance = baseRadius * (0.4 + Math.random() * 0.7);
-        const tx = px + Math.cos(theta) * distance;
-        const ty = py + Math.sin(theta) * distance;
-        ctx.lineTo(tx, ty);
-      }
-      ctx.closePath();
-      ctx.globalAlpha = 0.8;
-      ctx.fill();
-      ctx.globalAlpha = 1.0;
-    } else {
-      ctx.beginPath();
-      const loops = 3 + Math.floor(Math.random() * 3);
-      for (let i = 0; i < loops; i++) {
-        const radius = (baseRadius / loops) * (i + 1);
-        ctx.arc(px, py, radius, 0, Math.PI * 2);
-      }
-      ctx.stroke();
+    // 30% chance of a secondary color overlapping scribble to make it look even more like a rich human drawing!
+    if (Math.random() > 0.7) {
+      const secondaryColors = colors.filter(c => c !== color);
+      const secondaryColor = secondaryColors[Math.floor(Math.random() * secondaryColors.length)];
+      drawScribble(ctx, px, py, radius * 0.7, secondaryColor);
     }
   });
   
@@ -354,7 +458,7 @@ function loadDemoImage() {
     prev.src = dataUrl;
     uploadZone.appendChild(prev);
     document.getElementById('analyzeBtn').disabled = !templateImg;
-    setStatus('Randomized demo drawing generated on the new silhouette. Ready to analyze!');
+    setStatus('Randomized hand-drawn scribble texture generated on the new silhouette. Ready to analyze!');
   };
   img.onerror = () => {
     setStatus('Failed to generate randomized demo image.');
