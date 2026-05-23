@@ -148,7 +148,7 @@ input[type=file]{display:none}
         <button class="active" onclick="showTab('transparent')">Transparent (for Unity)</button>
         <button onclick="showTab('annotated')">Annotated Preview</button>
         <button onclick="showTab('diff')">Diff Map</button>
-        <button onclick="showTab('alignment')">Alignment Preview</button>
+        <button onclick="showTab('alignment')">Floating Emotions</button>
       </div>
       <div class="preview-box" id="prevBox">
         <p style="color:var(--text-dim);font-size:12px">Upload a drawing or click "Load Demo Image" to begin</p>
@@ -942,6 +942,22 @@ function createFinalDiffMask(alignedDrwData, tplData, insideSilhouetteMask, work
   return finalDiffMask;
 }
 
+function classifyPixelColorFromAlignedDrawing(alignedDrwData, idx) {
+  const i4 = idx * 4;
+  const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
+  const [h, s, v] = rgbToHsv(pr, pg, pb);
+  const pColor = classifyPixelColor(h, s, v);
+  const cat = getStandardColorCategory(pColor);
+  if (cat === 'green') return 'green';
+  if (cat === 'blue') return 'blue';
+  if (cat === 'red') return 'red';
+  if (cat === 'yellow') return 'yellow';
+  if (cat === 'cyan') return 'cyan';
+  if (cat === 'purple') return 'purple';
+  if (cat === 'orange_brown') return 'orange_brown';
+  return 'black';
+}
+
 function buildRegionsFromDiffMask(finalDiffMask, alignedDrwData, workW, workH) {
   const colorMasks = {
     black: new Uint8Array(workW * workH),
@@ -954,24 +970,41 @@ function buildRegionsFromDiffMask(finalDiffMask, alignedDrwData, workW, workH) {
     purple: new Uint8Array(workW * workH)
   };
 
-  for (let idx = 0; idx < workW * workH; idx++) {
-    if (finalDiffMask[idx] === 1) {
-      const i4 = idx * 4;
-      const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
-      const [h, s, v] = rgbToHsv(pr, pg, pb);
-      const pColor = classifyPixelColor(h, s, v);
-      const cat = getStandardColorCategory(pColor);
-      if (cat) {
-        colorMasks[cat][idx] = 1;
-      }
-    }
+  for (let i = 0; i < workW * workH; i++) {
+    if (finalDiffMask[i] !== 1) continue;
+    const color = classifyPixelColorFromAlignedDrawing(alignedDrwData, i);
+    colorMasks[color][i] = 1;
   }
 
+  const minAreaConfig = {
+    black: 40,
+    yellow: 40,
+    purple: 40,
+    cyan: 60,
+    orange_brown: 60,
+    green: 100,
+    red: 100,
+    blue: 100
+  };
+
   const candidates = [];
-  for (const [colorCat, mask] of Object.entries(colorMasks)) {
+  for (const [color, mask] of Object.entries(colorMasks)) {
     const comps = connectedComponents(mask, workW, workH);
+    const minArea = minAreaConfig[color] || 100;
     for (const comp of comps) {
-      if (comp.length <= 15) continue; // skip tiny noise fragments
+      let isFaceBlackSpiral = false;
+      if (color === 'black') {
+        let sumY = 0;
+        for (const idx of comp) {
+          sumY += Math.floor(idx / workW);
+        }
+        const avgY = sumY / comp.length;
+        if (avgY / workH < 0.25 && comp.length > 30) {
+          isFaceBlackSpiral = true;
+        }
+      }
+
+      if (!isFaceBlackSpiral && comp.length < minArea) continue; // remove tiny noise fragments only
 
       let minX = workW, maxX = 0, minY = workH, maxY = 0;
       for (const idx of comp) {
@@ -986,13 +1019,13 @@ function buildRegionsFromDiffMask(finalDiffMask, alignedDrwData, workW, workH) {
       const compH = maxY - minY + 1;
 
       candidates.push({
-        color: colorCat,
+        color: color,
         pixels: comp,
         bbox: {
-          x: minX / workW,
-          y: minY / workH,
-          width: compW / workW,
-          height: compH / workH
+          x: minX,
+          y: minY,
+          width: compW,
+          height: compH
         }
       });
     }
@@ -1000,7 +1033,50 @@ function buildRegionsFromDiffMask(finalDiffMask, alignedDrwData, workW, workH) {
   return candidates;
 }
 
-function mergeSameColorRegions(candidates, workW, workH, templateBBox) {
+function isNearTemplateOutline(x, y, workW, workH, templateOutlineMask, radius = 2) {
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx >= 0 && nx < workW && ny >= 0 && ny < workH) {
+        if (templateOutlineMask[ny * workW + nx] === 1) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function bboxOverlapRatio(b1, b2) {
+  const x_overlap = Math.max(0, Math.min(b1.x + b1.width, b2.x + b2.width) - Math.max(b1.x, b2.x));
+  const y_overlap = Math.max(0, Math.min(b1.y + b1.height, b2.y + b2.height) - Math.max(b1.y, b2.y));
+  const intersection = x_overlap * y_overlap;
+  if (intersection === 0) return 0;
+  const union = (b1.width * b1.height) + (b2.width * b2.height) - intersection;
+  return intersection / union;
+}
+
+function bboxDistance(b1, b2) {
+  const x1_min = b1.x, x1_max = b1.x + b1.width;
+  const y1_min = b1.y, y1_max = b1.y + b1.height;
+  const x2_min = b2.x, x2_max = b2.x + b2.width;
+  const y2_min = b2.y, y2_max = b2.y + b2.height;
+
+  const distX = Math.max(0, Math.max(x1_min, x2_min) - Math.min(x1_max, x2_max));
+  const distY = Math.max(0, Math.max(y1_min, y2_min) - Math.min(y1_max, y2_max));
+  return Math.sqrt(distX * distX + distY * distY);
+}
+
+function centerDistance(b1, b2) {
+  const cx1 = b1.x + b1.width / 2;
+  const cy1 = b1.y + b1.height / 2;
+  const cx2 = b2.x + b2.width / 2;
+  const cy2 = b2.y + b2.height / 2;
+  return Math.sqrt((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2);
+}
+
+function mergeSameColorRegions(candidates, workW, workH) {
   let changed = true;
   while (changed) {
     changed = false;
@@ -1010,68 +1086,62 @@ function mergeSameColorRegions(candidates, workW, workH, templateBBox) {
         const r2 = candidates[j];
         
         if (r1.color === r2.color) {
-          const cx1 = r1.bbox.x + r1.bbox.width / 2;
-          const cy1 = r1.bbox.y + r1.bbox.height / 2;
-          const cx2 = r2.bbox.x + r2.bbox.width / 2;
-          const cy2 = r2.bbox.y + r2.bbox.height / 2;
+          const a = r1.bbox;
+          const b = r2.bbox;
 
-          const dist = Math.sqrt((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2);
-          const overlap = getOverlapRatio(r1.bbox, r2.bbox);
+          const overlap = bboxOverlapRatio(a, b);
+          const dist = bboxDistance(a, b);
+          const maxDim = Math.max(a.width, a.height, b.width, b.height);
+          const cDist = centerDistance(a, b);
+          const cThreshold = Math.max(workW, workH) * 0.08;
 
-          const maxDim1 = Math.max(r1.bbox.width, r1.bbox.height);
-          const maxDim2 = Math.max(r2.bbox.width, r2.bbox.height);
+          let overlapThreshold = 0.05;
+          let distanceLimit = maxDim * 0.35;
+          let centerThreshold = cThreshold;
 
-          const horizontalGap = Math.abs(cx1 - cx2);
-          const verticalGap = Math.abs(cy1 - cy2);
-
-          const proximityCondition =
-            horizontalGap < Math.max(maxDim1, maxDim2) * 0.5 &&
-            verticalGap < Math.max(maxDim1, maxDim2) * 0.8;
-
-          const distLimit = Math.min(maxDim1, maxDim2) * 0.45;
-
-          // Special Purple Merge Condition
-          const verticalDistance = Math.abs(cy1 - cy2);
-          const xOverlap = Math.max(0, Math.min(r1.bbox.x + r1.bbox.width, r2.bbox.x + r2.bbox.width) - Math.max(r1.bbox.x, r2.bbox.x));
-          const minWidth = Math.min(r1.bbox.width, r2.bbox.width);
-          const horizontalOverlapRatio = minWidth > 0 ? (xOverlap / minWidth) : 0;
-
-          const purpleMergeCondition = (r1.color === 'purple') &&
-            (verticalDistance < (templateBBox.height / workH) * 0.25) &&
-            (horizontalOverlapRatio > 0.2);
+          if (r1.color === 'green') {
+            overlapThreshold = 0.03;
+            distanceLimit = 35;
+            centerThreshold = 70;
+          }
 
           if (
-            purpleMergeCondition ||
-            (proximityCondition && (dist < distLimit || overlap > 0.2))
+            overlap > overlapThreshold ||
+            dist < distanceLimit ||
+            cDist < centerThreshold
           ) {
             console.log("[merge]", {
               color: r1.color,
-              dist,
-              distLimit,
-              overlap,
-              isPurpleSpecial: purpleMergeCondition,
-              beforeCount: candidates.length
+              overlap: overlap.toFixed(3),
+              dist: dist.toFixed(1),
+              maxDimLimit: (maxDim * 0.35).toFixed(1),
+              cDist: cDist.toFixed(1),
+              cThreshold: cThreshold.toFixed(1)
             });
 
-            // Pixel union with Map key approach
-            const pixelMap = new Map();
-            [...r1.pixels, ...r2.pixels].forEach(p => {
-              const x = (typeof p === 'object') ? p.x : (p % workW);
-              const y = (typeof p === 'object') ? p.y : Math.floor(p / workW);
-              pixelMap.set(`${x}_${y}`, p);
-            });
-            const mergedPixels = Array.from(pixelMap.values());
-
-            // BBox union
-            const x1 = Math.min(r1.bbox.x, r2.bbox.x);
-            const y1 = Math.min(r1.bbox.y, r2.bbox.y);
-            const x2 = Math.max(r1.bbox.x + r1.bbox.width, r2.bbox.x + r2.bbox.width);
-            const y2 = Math.max(r1.bbox.y + r1.bbox.height, r2.bbox.y + r2.bbox.height);
-            const newW = x2 - x1;
-            const newH = y2 - y1;
+            // Merge pixels
+            const mergedPixels = [...r1.pixels, ...r2.pixels];
+            
+            // Recompute unified bounding box in pixel space
+            let minX = workW, maxX = 0, minY = workH, maxY = 0;
+            for (const idx of mergedPixels) {
+              const cx = idx % workW;
+              const cy = Math.floor(idx / workW);
+              if (cx < minX) minX = cx;
+              if (cx > maxX) maxX = cx;
+              if (cy < minY) minY = cy;
+              if (cy > maxY) maxY = cy;
+            }
+            const compW = maxX - minX + 1;
+            const compH = maxY - minY + 1;
 
             r1.pixels = mergedPixels;
-            r1.bbox = { x: x1, y: y1, width: newW, height: newH };
+            r1.bbox = {
+              x: minX,
+              y: minY,
+              width: compW,
+              height: compH
+            };
 
             candidates.splice(j, 1);
             changed = true;
@@ -1082,169 +1152,7 @@ function mergeSameColorRegions(candidates, workW, workH, templateBBox) {
       if (changed) break;
     }
   }
-
-  // Noise Filtering on Merged Regions
-  const config = {
-    black: { minArea: 60, densityLimit: 0.03, aspectLimit: 20, skipCircularity: true },
-    green: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
-    red: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
-    blue: { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false },
-    orange_brown: { minArea: 250, densityLimit: 0.015, aspectLimit: 12, skipCircularity: false },
-    cyan: { minArea: 250, densityLimit: 0.015, aspectLimit: 12, skipCircularity: false },
-    yellow: { minArea: 100, densityLimit: 0.005, aspectLimit: 20, skipCircularity: false },
-    purple: { minArea: 80, densityLimit: 0.005, aspectLimit: 20, skipCircularity: false }
-  };
-
-  const filteredMerged = [];
-  const tplHeadCenterX = templateBBox.centerX;
-  const tplHeadCenterY = templateBBox.y + templateBBox.height * 0.08;
-
-  for (const r of candidates) {
-    let minX = workW, maxX = 0, minY = workH, maxY = 0;
-    for (const idx of r.pixels) {
-      const cx = idx % workW;
-      const cy = Math.floor(idx / workW);
-      if (cx < minX) minX = cx;
-      if (cx > maxX) maxX = cx;
-      if (cy < minY) minY = cy;
-      if (cy > maxY) maxY = cy;
-    }
-    const compW = maxX - minX + 1;
-    const compH = maxY - minY + 1;
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-
-    const cfg = config[r.color] || { minArea: 300, densityLimit: 0.02, aspectLimit: 12, skipCircularity: false };
-    const minArea = cfg.minArea;
-    const densityLimit = cfg.densityLimit;
-    const aspectLimit = cfg.aspectLimit;
-    const skipCircularity = cfg.skipCircularity;
-
-    const pixelCount = r.pixels.length;
-    const bboxArea = compW * compH;
-    const strokeDensity = pixelCount / bboxArea;
-    const aspectRatio = Math.max(compW, compH) / Math.min(compW, compH);
-
-    const circ = calculateCircularity(r.pixels, workW, workH);
-
-    let removed = false;
-    let removalReason = "";
-
-    // Black outline/head filter: upper 25% only for black spiral candidate
-    if (r.color === 'black') {
-      if (cy / workH >= 0.25) {
-        removed = true;
-        removalReason = "below head (upper 25% only for black)";
-      }
-    }
-
-    if (!removed && strokeDensity <= densityLimit) {
-      removed = true;
-      removalReason = `density (${strokeDensity.toFixed(4)} <= ${densityLimit})`;
-    }
-    if (!removed && aspectRatio >= aspectLimit) {
-      removed = true;
-      removalReason = `aspectRatio (${aspectRatio.toFixed(2)} >= ${aspectLimit})`;
-    }
-    if (!removed && pixelCount <= minArea) {
-      removed = true;
-      removalReason = `minArea (${pixelCount} <= ${minArea})`;
-    }
-    if (!removed && !skipCircularity && circ <= 0.05) {
-      removed = true;
-      removalReason = `circularity (${circ.toFixed(3)} <= 0.05)`;
-    }
-
-    if (removed) {
-      console.log("[removed]", {
-        color: r.color,
-        pixelCount: pixelCount,
-        strokeDensity: strokeDensity,
-        aspectRatio: aspectRatio,
-        circularity: circ,
-        removalReason: removalReason
-      });
-      continue;
-    }
-
-    const distToHead = Math.sqrt((cx - tplHeadCenterX) ** 2 + (cy - tplHeadCenterY) ** 2);
-    filteredMerged.push({
-      color: r.color,
-      pixels: r.pixels,
-      cx,
-      cy,
-      minX,
-      maxX,
-      minY,
-      maxY,
-      compW,
-      compH,
-      distToHead
-    });
-  }
-
-  // Black head candidates filter: sort by head distance and slice to keep the closest
-  let nonBlackRegions = [];
-  let blackRegions = [];
-  for (const reg of filteredMerged) {
-    if (reg.color === 'black') {
-      blackRegions.push(reg);
-    } else {
-      nonBlackRegions.push(reg);
-    }
-  }
-  blackRegions.sort((a, b) => a.distToHead - b.distToHead);
-  const keptBlackRegions = blackRegions.slice(0, 5);
-  
-  return [...nonBlackRegions, ...keptBlackRegions];
-}
-
-function computePaddedBBoxFromMask(pixels, workW, workH) {
-  let minX = workW, maxX = 0, minY = workH, maxY = 0;
-  for (const idx of pixels) {
-    const cx = idx % workW;
-    const cy = Math.floor(idx / workW);
-    if (cx < minX) minX = cx;
-    if (cx > maxX) maxX = cx;
-    if (cy < minY) minY = cy;
-    if (cy > maxY) maxY = cy;
-  }
-
-  const rawWidth = maxX - minX;
-  const rawHeight = maxY - minY;
-
-  const padX = Math.max(rawWidth * 0.12, 10);
-  const padY = Math.max(rawHeight * 0.12, 10);
-
-  const bx = Math.max(0, minX - padX);
-  const by = Math.max(0, minY - padY);
-  const bw = Math.min(workW - bx, rawWidth + padX * 2);
-  const bh = Math.min(workH - by, rawHeight + padY * 2);
-
-  return {
-    raw: {
-      x: minX / workW,
-      y: minY / workH,
-      width: rawWidth / workW,
-      height: rawHeight / workH
-    },
-    padded: {
-      x: bx / workW,
-      y: by / workH,
-      width: bw / workW,
-      height: bh / workH
-    }
-  };
-}
-
-function getBBoxFromMask(pixels, workW, workH) {
-  const bboxes = computePaddedBBoxFromMask(pixels, workW, workH);
-  return {
-    x: Math.round(bboxes.padded.x * workW),
-    y: Math.round(bboxes.padded.y * workH),
-    width: Math.round(bboxes.padded.width * workW),
-    height: Math.round(bboxes.padded.height * workH)
-  };
+  return candidates;
 }
 
 function drawAnnotatedPreview(regions, cAlignedD, workW, workH) {
@@ -1255,27 +1163,26 @@ function drawAnnotatedPreview(regions, cAlignedD, workW, workH) {
   const vizC = ['#ff3355','#33ff88','#3388ff','#ffee33','#ff33ee','#33ffee','#ff8833','#8833ff'];
   for (let i = 0; i < regions.length; i++) {
     const r = regions[i], c = vizC[i % vizC.length];
-    const bbox = getBBoxFromMask(r.maskPixels, workW, workH);
     annCtx.strokeStyle = c; annCtx.lineWidth = 2;
-    annCtx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
+    annCtx.strokeRect(r.paddedBBox.x, r.paddedBBox.y, r.paddedBBox.width, r.paddedBBox.height);
     annCtx.fillStyle = c;
     annCtx.font = 'bold 11px JetBrains Mono, monospace';
-    annCtx.fillText(`#${r.id} ${r.body_part} (${r.pattern})`, bbox.x + 2, bbox.y - 4);
+    annCtx.fillText(`#${r.id} ${r.body_part} (${r.pattern})`, r.paddedBBox.x + 2, r.paddedBBox.y - 4);
   }
 }
 
 function exportUnitySprites(r, alignedDrwData, workW, workH) {
-  const bx = Math.round(r.bbox.x * workW);
-  const by = Math.round(r.bbox.y * workH);
-  const bw = Math.round(r.bbox.width * workW);
-  const bh = Math.round(r.bbox.height * workH);
+  const bx = r.paddedBBox.x;
+  const by = r.paddedBBox.y;
+  const bw = r.paddedBBox.width;
+  const bh = r.paddedBBox.height;
 
   let image_base64 = '';
   if (bw > 0 && bh > 0) {
     const sprC = document.createElement('canvas'); sprC.width = bw; sprC.height = bh;
     const sprCtx = sprC.getContext('2d');
     const sprD = sprCtx.createImageData(bw, bh);
-    const pixelSet = new Set(r.pixels);
+    const pixelSet = new Set(r.maskPixels);
     for (let py = 0; py < bh; py++) {
       for (let px = 0; px < bw; px++) {
         const targetX = bx + px;
@@ -1867,6 +1774,27 @@ async function runAnalysis() {
   // Generate finalStrokeMask / diffMask
   const finalDiffMask = createFinalDiffMask(alignedDrwData, tplData, insideSilhouetteMask, workW, workH);
 
+  // Remove template outline pixels from black strokes below neck
+  const templateOutlineMask = new Uint8Array(workW * workH);
+  for (let i = 0; i < workW * workH; i++) {
+    const i4 = i * 4;
+    if (tplData[i4+3] > 10 && (tplData[i4] < 240 || tplData[i4+1] < 240 || tplData[i4+2] < 240)) {
+      templateOutlineMask[i] = 1;
+    }
+  }
+
+  for (let i = 0; i < workW * workH; i++) {
+    if (finalDiffMask[i] !== 1) continue;
+    const color = classifyPixelColorFromAlignedDrawing(alignedDrwData, i);
+    if (color === 'black') {
+      const cx = i % workW;
+      const cy = Math.floor(i / workW);
+      if (cy / workH >= 0.22 && isNearTemplateOutline(cx, cy, workW, workH, templateOutlineMask, 2)) {
+        finalDiffMask[i] = 0;
+      }
+    }
+  }
+
   // Generate Diff Map (pixel-perfect strokes on black background) early
   const cDiff = document.getElementById('cDiff'); cDiff.width = workW; cDiff.height = workH;
   const diffCtx = cDiff.getContext('2d');
@@ -1900,21 +1828,88 @@ async function runAnalysis() {
   setProgress(35);
   await sleep(10);
 
-  const finalMergedRegions = mergeSameColorRegions(candidates, workW, workH, templateBBox);
+  const finalMergedRegions = mergeSameColorRegions(candidates, workW, workH);
   console.log("After filtering & merging:", finalMergedRegions.length);
 
-  // Create final region candidates with 12% + 10px padding
+  // remove oversized false regions
+  const bodyHeight = templateBBox.height;
+  const bodyWidth = templateBBox.width;
+
+  const validRegions = [];
+  for (const r of finalMergedRegions) {
+    const bboxArea = r.bbox.width * r.bbox.height;
+    const isOversized =
+      r.bbox.height > bodyHeight * 0.75 ||
+      r.bbox.width > bodyWidth * 0.8 ||
+      (r.pixels.length / bboxArea < 0.01 && (r.bbox.width > bodyWidth * 0.4 || r.bbox.height > bodyHeight * 0.4));
+
+    const isBlackBodyOutline = (r.color === 'black' && r.bbox.height >= bodyHeight * 0.5);
+
+    if (isOversized || isBlackBodyOutline) {
+      console.log(`[filter-oversized] Removed region color=${r.color} width=${r.bbox.width} height=${r.bbox.height} (bodyHeight=${bodyHeight}, bodyWidth=${bodyWidth})`);
+      continue;
+    }
+    validRegions.push(r);
+  }
+
+  // 8. 최종 region 생성
   const regionsList = [];
-  for (let i = 0; i < finalMergedRegions.length; i++) {
-    const c = finalMergedRegions[i];
-    const bboxes = computePaddedBBoxFromMask(c.pixels, workW, workH);
+  for (let i = 0; i < validRegions.length; i++) {
+    const c = validRegions[i];
+    
+    // Calculate rawBBox from maskPixels
+    let minX = workW, maxX = 0, minY = workH, maxY = 0;
+    for (const idx of c.pixels) {
+      const cx = idx % workW;
+      const cy = Math.floor(idx / workW);
+      if (cx < minX) minX = cx;
+      if (cx > maxX) maxX = cx;
+      if (cy < minY) minY = cy;
+      if (cy > maxY) maxY = cy;
+    }
+    const rawW = maxX - minX + 1;
+    const rawH = maxY - minY + 1;
+    const rawBBox = { x: minX, y: minY, width: rawW, height: rawH };
+
+    // Calculate paddedBBox with 8% + 6px padding
+    const padX = Math.round(Math.max(rawW * 0.08, 6));
+    const padY = Math.round(Math.max(rawH * 0.08, 6));
+
+    const px = Math.max(0, minX - padX);
+    const py = Math.max(0, minY - padY);
+    const pw = Math.min(workW - px, rawW + padX * 2);
+    const ph = Math.min(workH - py, rawH + padY * 2);
+    const paddedBBox = { x: px, y: py, width: pw, height: ph };
+
+    // Normalized coordinates
+    const normalizedCenterX = (paddedBBox.x + paddedBBox.width / 2) / workW;
+    const normalizedCenterY = (paddedBBox.y + paddedBBox.height / 2) / workH;
+    const widthRatio = paddedBBox.width / workW;
+    const heightRatio = paddedBBox.height / workH;
+
+    // Color hex
+    let color_hex = '#808080';
+    if (c.color === 'red') color_hex = '#ff3355';
+    else if (c.color === 'blue') color_hex = '#3388ff';
+    else if (c.color === 'green') color_hex = '#33ff88';
+    else if (c.color === 'yellow') color_hex = '#ffee33';
+    else if (c.color === 'purple') color_hex = '#8833ff';
+    else if (c.color === 'cyan') color_hex = '#33ffee';
+    else if (c.color === 'black') color_hex = '#000000';
+    else if (c.color === 'orange_brown') color_hex = '#ff8833';
 
     regionsList.push({
       id: i,
       color: c.color,
-      pixels: c.pixels,
-      rawBBox: bboxes.raw,
-      bbox: bboxes.padded
+      color_hex: color_hex,
+      maskPixels: c.pixels,
+      pixelCount: c.pixels.length,
+      rawBBox: rawBBox,
+      paddedBBox: paddedBBox,
+      normalizedCenterX: normalizedCenterX,
+      normalizedCenterY: normalizedCenterY,
+      widthRatio: widthRatio,
+      heightRatio: heightRatio
     });
   }
 
@@ -1931,10 +1926,10 @@ async function runAnalysis() {
 
   const cropsToAnalyze = [];
   for (const r of regionsList) {
-    const bx = Math.round(r.bbox.x * workW);
-    const by = Math.round(r.bbox.y * workH);
-    const bw = Math.round(r.bbox.width * workW);
-    const bh = Math.round(r.bbox.height * workH);
+    const bx = r.paddedBBox.x;
+    const by = r.paddedBBox.y;
+    const bw = r.paddedBBox.width;
+    const bh = r.paddedBBox.height;
 
     if (bw > 0 && bh > 0) {
       const cropCanvas = document.createElement('canvas');
@@ -1943,7 +1938,7 @@ async function runAnalysis() {
       const cropCtx = cropCanvas.getContext('2d');
       const cropImgData = cropCtx.createImageData(bw, bh);
 
-      const pixelSet = new Set(r.pixels);
+      const pixelSet = new Set(r.maskPixels);
       for (let py = 0; py < bh; py++) {
         for (let px = 0; px < bw; px++) {
           const targetX = bx + px;
@@ -1967,17 +1962,14 @@ async function runAnalysis() {
       cropCtx.putImageData(cropImgData, 0, 0);
       const base64Crop = cropCanvas.toDataURL('image/png');
 
-      const ncx = r.bbox.x + r.bbox.width / 2;
-      const ncy = r.bbox.y + r.bbox.height / 2;
-
       cropsToAnalyze.push({
         id: r.id,
         image: base64Crop,
         color: r.color,
-        normalizedCenterX: ncx,
-        normalizedCenterY: ncy,
-        widthRatio: r.bbox.width,
-        heightRatio: r.bbox.height
+        normalizedCenterX: r.normalizedCenterX,
+        normalizedCenterY: r.normalizedCenterY,
+        widthRatio: r.widthRatio,
+        heightRatio: r.heightRatio
       });
     }
   }
@@ -2017,14 +2009,14 @@ async function runAnalysis() {
 
   const regions = [];
   for (const r of regionsList) {
-    const pixelCount = r.pixels.length;
-    const bx = Math.round(r.bbox.x * workW);
-    const by = Math.round(r.bbox.y * workH);
-    const bw = Math.round(r.bbox.width * workW);
-    const bh = Math.round(r.bbox.height * workH);
+    const pixelCount = r.pixelCount;
+    const bx = r.paddedBBox.x;
+    const by = r.paddedBBox.y;
+    const bw = r.paddedBBox.width;
+    const bh = r.paddedBBox.height;
 
-    const ncx = r.bbox.x + r.bbox.width / 2;
-    const ncy = r.bbox.y + r.bbox.height / 2;
+    const ncx = r.normalizedCenterX;
+    const ncy = r.normalizedCenterY;
 
     // 1. Determine sides deterministically in frontend
     let image_side = 'center';
@@ -2090,16 +2082,6 @@ async function runAnalysis() {
       }
     }
 
-    let color_hex = '#808080';
-    if (r.color === 'red') color_hex = '#ff3355';
-    else if (r.color === 'blue') color_hex = '#3388ff';
-    else if (r.color === 'green') color_hex = '#33ff88';
-    else if (r.color === 'yellow') color_hex = '#ffee33';
-    else if (r.color === 'purple') color_hex = '#8833ff';
-    else if (r.color === 'cyan') color_hex = '#33ffee';
-    else if (r.color === 'black') color_hex = '#000000';
-    else if (r.color === 'orange_brown') color_hex = '#ff8833';
-
     const bounding_box = {
       x: Math.round(bx * outW / workW), y: Math.round(by * outH / workH),
       width: Math.round(bw * outW / workW), height: Math.round(bh * outH / workH)
@@ -2113,12 +2095,18 @@ async function runAnalysis() {
       body_side: body_side,
       image_side: image_side,
       color: r.color,
-      color_hex: color_hex,
-      color_rgb: hexToRgb(color_hex),
+      color_hex: r.color_hex,
+      color_rgb: hexToRgb(r.color_hex),
       pattern: pattern,
       visual_description: visual_description,
       confidence: confidence,
-      bbox: r.bbox,
+      bbox: {
+        x: bx / workW,
+        y: by / workH,
+        width: bw / workW,
+        height: bh / workH
+      }, // normalized paddedBBox
+      paddedBBox: r.paddedBBox, // absolute paddedBBox in work space
       bounding_box: bounding_box,
       center: { x: Math.round((bx + bw / 2) * outW / workW), y: Math.round((by + bh / 2) * outH / workH) },
       center_normalized: { x: +ncx.toFixed(3), y: +ncy.toFixed(3) },
@@ -2127,30 +2115,20 @@ async function runAnalysis() {
       pixel_count: Math.round(pixelCount * (outW * outH) / (workW * workH)),
       area_ratio: +(pixelCount / (workW * workH)).toFixed(4),
       rawBBox: r.rawBBox,
-      maskPixels: r.pixels
+      maskPixels: r.maskPixels
     });
-    const region = regions[regions.length - 1];
-    console.log("region pixelCount", region.id, region.color, region.pixelCount);
+    
+    console.log("region pixelCount", r.id, r.color, pixelCount);
 
     console.log({
       id: r.id,
       color: r.color,
       pixelCount: pixelCount,
-      rawBBox: {
-        x: Math.round(r.rawBBox.x * workW),
-        y: Math.round(r.rawBBox.y * workH),
-        width: Math.round(r.rawBBox.width * workW),
-        height: Math.round(r.rawBBox.height * workH)
-      },
-      paddedBBox: {
-        x: bx,
-        y: by,
-        width: bw,
-        height: bh
-      },
+      rawBBox: r.rawBBox,
+      paddedBBox: r.paddedBBox,
       spriteSize: [bw, bh]
     });
-}
+  }
 
   /* ── Phase 6: Transparent PNG (full resolution outline-based alignment) ── */
   setStatus('Rendering transparent body map…');
@@ -2371,13 +2349,43 @@ function showTab(tab) {
   currentTab = tab;
   if (!result) return;
   const box = document.getElementById('prevBox');
-  const urls = { transparent: result.transparentUrl, annotated: result.annotatedUrl, diff: result.diffUrl };
-  const bg = tab === 'transparent' ? '#000' : '#111';
-  box.style.background = bg;
-  box.innerHTML = `<img src="${urls[tab]}" alt="${tab}">`;
+  
+  // reset style
+  box.style.overflowY = 'visible';
+  box.style.maxHeight = 'none';
+
+  if (tab === 'alignment') {
+    box.style.background = '#111';
+    box.style.overflowY = 'auto';
+    box.style.maxHeight = '380px';
+    
+    let html = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 14px; padding: 14px; width: 100%;">`;
+    for (const r of result.regions) {
+      const spriteUrl = `data:image/png;base64,${r.image_base64}`;
+      html += `
+        <div style="background: #1c1c20; border: 1px solid #2a2a30; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; align-items: center; text-align: center; color: #e8e8ec;">
+          <div style="width: 80px; height: 80px; background: #000; border-radius: 4px; display: flex; justify-content: center; align-items: center; margin-bottom: 8px; border: 1px solid #2a2a30; position: relative;">
+            <img src="${spriteUrl}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+          </div>
+          <div style="font-size: 11px; font-weight: bold; margin-bottom: 2px;">#${r.id} ${r.color}</div>
+          <div style="font-size: 10px; color: #8888a0; margin-bottom: 4px;">${r.body_part}</div>
+          <div style="font-size: 9px; color: #6c5ce7; font-family: monospace;">Count: ${r.pixelCount}</div>
+          <div style="font-size: 9px; color: #8888a0; font-family: monospace;">${r.paddedBBox.width}x${r.paddedBBox.height}</div>
+        </div>
+      `;
+    }
+    html += `</div>`;
+    box.innerHTML = html;
+  } else {
+    const urls = { transparent: result.transparentUrl, annotated: result.annotatedUrl, diff: result.diffUrl };
+    const bg = tab === 'transparent' ? '#000' : '#111';
+    box.style.background = bg;
+    box.innerHTML = `<img src="${urls[tab]}" alt="${tab}">`;
+  }
  
   document.querySelectorAll('.preview-tabs button').forEach(b => {
-    b.classList.toggle('active', b.textContent.toLowerCase().includes(tab));
+    const onclickAttr = b.getAttribute('onclick') || '';
+    b.classList.toggle('active', onclickAttr.includes(`'${tab}'`));
   });
 }
  
