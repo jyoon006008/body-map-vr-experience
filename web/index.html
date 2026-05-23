@@ -822,6 +822,27 @@ function classifyPixelColor(h, s, v) {
   return 'mixed_unknown';
 }
 
+function getBoxDistance(b1, b2) {
+  const x1_min = b1.x, x1_max = b1.x + b1.width;
+  const y1_min = b1.y, y1_max = b1.y + b1.height;
+  const x2_min = b2.x, x2_max = b2.x + b2.width;
+  const y2_min = b2.y, y2_max = b2.y + b2.height;
+
+  const distX = Math.max(0, Math.max(x1_min, x2_min) - Math.min(x1_max, x2_max));
+  const distY = Math.max(0, Math.max(y1_min, y2_min) - Math.min(y1_max, y2_max));
+  return Math.sqrt(distX * distX + distY * distY);
+}
+
+function getOverlapRatio(b1, b2) {
+  const x_overlap = Math.max(0, Math.min(b1.x + b1.width, b2.x + b2.width) - Math.max(b1.x, b2.x));
+  const y_overlap = Math.max(0, Math.min(b1.y + b1.height, b2.y + b2.height) - Math.max(b1.y, b2.y));
+  const intersection = x_overlap * y_overlap;
+  if (intersection === 0) return 0;
+  const area1 = b1.width * b1.height;
+  const area2 = b2.width * b2.height;
+  return intersection / Math.min(area1, area2);
+}
+
 function getIoU(box1, box2) {
   const x1 = Math.max(box1.x, box2.x);
   const y1 = Math.max(box1.y, box2.y);
@@ -1677,18 +1698,23 @@ async function runAnalysis() {
         const r1 = refinedRegions[i];
         const r2 = refinedRegions[j];
         if (r1.color_name === r2.color_name) {
-          const iou = getIoU(r1.bbox, r2.bbox);
-          const box1 = { x: r1.bbox.x * workW, y: r1.bbox.y * workH, width: r1.bbox.width * workW, height: r1.bbox.height * workH };
-          const box2 = { x: r2.bbox.x * workW, y: r2.bbox.y * workH, width: r2.bbox.width * workW, height: r2.bbox.height * workH };
+          const box1 = {
+            x: r1.bbox.x * workW,
+            y: r1.bbox.y * workH,
+            width: r1.bbox.width * workW,
+            height: r1.bbox.height * workH
+          };
+          const box2 = {
+            x: r2.bbox.x * workW,
+            y: r2.bbox.y * workH,
+            width: r2.bbox.width * workW,
+            height: r2.bbox.height * workH
+          };
           
-          const cx1 = box1.x + box1.width / 2;
-          const cy1 = box1.y + box1.height / 2;
-          const cx2 = box2.x + box2.width / 2;
-          const cy2 = box2.y + box2.height / 2;
-          const centerDistance = Math.sqrt((cx1 - cx2) * (cx1 - cx2) + (cy1 - cy2) * (cy1 - cy2));
-          const minDim = Math.min(box1.width, box1.height);
+          const distanceBetweenBoxes = getBoxDistance(box1, box2);
+          const overlapRatio = getOverlapRatio(box1, box2);
 
-          if (iou > 0.5 || (areBoxesClose(box1, box2, closeDist) && centerDistance < minDim)) {
+          if (distanceBetweenBoxes < 40 || overlapRatio > 0.15) {
             // Merge pixels list (Pixel-level mask union)
             r1.pixels = r1.pixels.concat(r2.pixels);
             
@@ -1725,13 +1751,32 @@ async function runAnalysis() {
     }
   }
 
-  // Re-index refined regions
-  refinedRegions.forEach((r, idx) => {
+  // Filter out noise and mixed_unknown regions
+  const finalRegions = [];
+  for (const r of refinedRegions) {
+    if (r.color_name === 'mixed_unknown') continue;
+
+    const strokeArea = r.pixels.length;
+    const bw = Math.round(r.bbox.width * workW);
+    const bh = Math.round(r.bbox.height * workH);
+    const bboxArea = bw * bh;
+    const strokeDensity = strokeArea / bboxArea;
+    const expansionRatio = bboxArea / strokeArea;
+
+    if (strokeArea < 1500 || expansionRatio > 8 || strokeDensity < 0.12) {
+      console.log(`[refinement] Ignored noise region #${r.id} (${r.color_name}): area=${strokeArea}px, ratio=${expansionRatio.toFixed(2)}, density=${strokeDensity.toFixed(2)}`);
+      continue;
+    }
+    finalRegions.push(r);
+  }
+
+  // Re-index final regions
+  finalRegions.forEach((r, idx) => {
     r.id = idx;
   });
 
-  regions = refinedRegions;
-  console.log(`[refinement] Final tight regions count: ${regions.length}`);
+  regions = finalRegions;
+  console.log(`[refinement] Final semantic regions count: ${regions.length}`);
 
   /* ── Phase 3: Process each region (sprite extraction using pixelSet) ── */
   for (const r of regions) {
@@ -1852,16 +1897,6 @@ async function runAnalysis() {
   const cAnn = document.getElementById('cAnn'); cAnn.width = workW; cAnn.height = workH;
   const annCtx = cAnn.getContext('2d');
   annCtx.drawImage(cAlignedD, 0, 0, workW, workH);
-
-  // Draw sourceBodyBBox debug rectangle (workDestX, workDestY, workDestW, workDestH) in dashed orange
-  annCtx.strokeStyle = '#FF9500';
-  annCtx.lineWidth = 2;
-  annCtx.setLineDash([4, 4]);
-  annCtx.strokeRect(workDestX, workDestY, workDestW, workDestH);
-  annCtx.setLineDash([]);
-  annCtx.fillStyle = '#FF9500';
-  annCtx.font = 'bold 11px JetBrains Mono, monospace';
-  annCtx.fillText('BODY SILHOUETTE LIMIT', workDestX + 5, workDestY + 15);
 
   const vizC = ['#ff3355','#33ff88','#3388ff','#ffee33','#ff33ee','#33ffee','#ff8833','#8833ff'];
   for (let i = 0; i < regions.length; i++) {
