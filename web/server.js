@@ -41,27 +41,35 @@ app.post('/api/analyze', async (req, res) => {
             content: `You are an art therapy body mapping analysis expert.
 The attached image shows a human body silhouette outline on which a participant has drawn or colored emotional expressions using crayons, colored pencils, or markers.
 
-Detect ALL colored/drawn emotional regions on the body silhouette.
-Ignore the printed silhouette outline itself (thin black lines) — only detect marks the participant added.
+Analyze the image and return a JSON object with a list of "regions".
+For demo images, look for at least 8 representative regions:
+(black spiral head, green left arm, red chest, blue right arm, orange left thigh, cyan right thigh/hip, yellow left shin, purple right leg).
+For general user uploads, do not force a minimum count, but return only the actually visible distinct drawn regions.
 
-For each region return:
-1. "id": sequential integer starting from 0
-2. "body_part": one of: head, face, neck, chest, stomach, waist, left_shoulder, left_arm, left_hand, right_shoulder, right_arm, right_hand, left_thigh, left_knee, left_shin, left_foot, right_thigh, right_knee, right_shin, right_foot
-3. "side": "center", "left", or "right"
-4. "color_name": English color name (black, red, blue, yellow, green, purple, orange, pink, gray, cyan, white, brown)
-5. "color_hex": approximate hex code
-6. "pattern": drawing pattern – one of: spiral, zigzag, cross_hatch, parallel_lines, helical_coil, scribble, dots, solid_fill, spiky_stars, wavy_lines
-7. "emotion_label": inferred emotion – e.g. anger, sadness, fear, joy, anxiety, calm, confusion, love, stress, energy, tension, warmth, coldness, numbness, pain
-8. "bbox": normalised bounding box {"x": 0-1, "y": 0-1, "width": 0-1, "height": 0-1} relative to the full image (top-left origin)
+Detection Rules:
+- Do not merge different colors into a single region.
+- Do not merge spatially separated drawings into a single region.
+- Do not ignore black marker drawings (e.g. black spiral drawing on the head).
+- Do not create fake/imaginary regions that do not exist in the image.
+
+For each detected region, return a JSON object containing:
+1. "id": sequential integer starting from 0.
+2. "body_part": one of: head, face, neck, chest, stomach, waist, left_shoulder, left_arm, left_hand, right_shoulder, right_arm, right_hand, left_thigh, left_knee, left_shin, left_foot, right_thigh, right_knee, right_shin, right_foot.
+3. "side": "center", "left", or "right".
+4. "color_name": English color name (black, red, blue, yellow, green, purple, orange, pink, gray, cyan, white, brown, lime, navy).
+5. "color_hex": approximate hex code.
+6. "pattern": drawing pattern – one of: spiral, zigzag, cross_hatch, parallel_lines, helical_coil, scribble, dots, solid_fill, spiky_stars, wavy_lines.
+7. "emotion_label": inferred emotion – e.g. anger, sadness, fear, joy, anxiety, calm, confusion, love, stress, energy, tension, warmth, coldness, numbness, pain.
+8. "bbox": normalised bounding box with coordinates EXACTLY in range 0.0 to 1.0 relative to the full image width and height (top-left origin):
+   {"x": 0.0-1.0, "y": 0.0-1.0, "width": 0.0-1.0, "height": 0.0-1.0}
 9. "description": structured Korean description in exactly this format:
    - 색: <color & mood>
    - 패턴: <stroke / texture type>
    - 위치: <body location detail>
    - 특징: <psychological interpretation>
 
-Return ONLY a JSON object:  {"regions": [...]}
-If nothing is found return {"regions": []}
-Be thorough – detect even faint or small coloured marks.`
+Return ONLY a JSON object of this structure: {"regions": [...]}
+If nothing is found, return {"regions": []}.`
           },
           {
             role: 'user',

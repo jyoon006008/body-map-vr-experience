@@ -741,7 +741,113 @@ function rgbToHsv(r, g, b) {
   }
   return [Math.round(h * 180), Math.round(s * 255), Math.round(v * 255)];
 }
- 
+
+function isStrokePixel(r, g, b, tplR, tplG, tplB) {
+  // If the drawing pixel is identical or very close to the template outline, it means no drawing is on top. Exclude it.
+  if (tplR < 235 || tplG < 235 || tplB < 235) {
+    if (Math.abs(r - tplR) < 20 && Math.abs(g - tplG) < 20 && Math.abs(b - tplB) < 20) {
+      return false;
+    }
+  }
+
+  const [h, s, v] = rgbToHsv(r, g, b);
+  
+  // 1. Exclude paper gray / paper background / shadow
+  if (s < 15 && v > 140) {
+    return false;
+  }
+  if (s < 25 && v > 150) {
+    return false;
+  }
+
+  // 2. Keep black marker stroke
+  if (s < 35 && v < 90) {
+    return true;
+  }
+
+  // 3. Keep gray stroke
+  if (s < 20 && v < 120) {
+    return true;
+  }
+
+  // 4. Keep colored stroke
+  if (s > 35 && v < 245) {
+    return true;
+  }
+  
+  return false;
+}
+
+function classifyPixelColor(h, s, v) {
+  // 1. Achromatic: black vs gray
+  if (s < 20 && v >= 90 && v < 120) {
+    return 'gray';
+  }
+  if (s < 35 && v < 90) {
+    return 'black';
+  }
+  
+  // If saturation is very low, it's ambiguous
+  if (s < 40) {
+    return 'mixed_unknown';
+  }
+
+  // 2. Chromatic colors based on Hue (0-180)
+  if (h < 10 || h >= 165) {
+    if (s < 120 || v > 200) return 'pink';
+    return 'red';
+  }
+  if (h >= 150 && h < 165) return 'pink';
+  if (h >= 130 && h < 150) return 'purple';
+  
+  if (h >= 100 && h < 130) {
+    if (v < 100) return 'navy';
+    return 'blue';
+  }
+  
+  if (h >= 80 && h < 100) return 'cyan';
+  
+  if (h >= 48 && h < 80) {
+    if (h < 60 && s > 150) return 'lime';
+    return 'green';
+  }
+  if (h >= 35 && h < 48) return 'lime';
+  if (h >= 22 && h < 35) return 'yellow';
+  
+  if (h >= 10 && h < 22) {
+    if (v < 130) return 'brown';
+    return 'orange';
+  }
+  
+  return 'mixed_unknown';
+}
+
+function getIoU(box1, box2) {
+  const x1 = Math.max(box1.x, box2.x);
+  const y1 = Math.max(box1.y, box2.y);
+  const x2 = Math.min(box1.x + box1.width, box2.x + box2.width);
+  const y2 = Math.min(box1.y + box1.height, box2.y + box2.height);
+  const intersection = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  if (intersection === 0) return 0;
+  const area1 = box1.width * box1.height;
+  const area2 = box2.width * box2.height;
+  return intersection / (area1 + area2 - intersection);
+}
+
+function areBoxesClose(box1, box2, threshold) {
+  const b1_x1 = box1.x - threshold;
+  const b1_y1 = box1.y - threshold;
+  const b1_x2 = box1.x + box1.width + threshold;
+  const b1_y2 = box1.y + box1.height + threshold;
+  
+  const b2_x1 = box2.x;
+  const b2_y1 = box2.y;
+  const b2_x2 = box2.x + box2.width;
+  const b2_y2 = box2.y + box2.height;
+  
+  return !(b1_x2 < b2_x1 || b2_x2 < b1_x1 || b1_y2 < b2_y1 || b2_y2 < b1_y1);
+}
+
 function colorName(h, s, v) {
   if (s < 40) return v < 80 ? 'black' : v < 160 ? 'gray' : 'white';
   if (h < 10 || h >= 170) return 'red';
@@ -993,6 +1099,9 @@ async function runAnalysis() {
     destX, destY, alignedW, alignedH);
   const alignedDrwData = ctxAlignedD.getImageData(0, 0, w, h).data;
 
+  // Compute work-res outsideMask
+  const outsideMask = getOutsideMask({ width: w, data: alignedDrwData }, w, h);
+
   setProgress(15);
 
   /* ── Phase 2: Send aligned image to AI backend ─────────────── */
@@ -1012,50 +1121,421 @@ async function runAnalysis() {
 
   const aiData = await aiResponse.json();
   if (aiData.error) throw new Error(aiData.error);
-  const regions = (aiData.regions || []).map((r, idx) => ({ ...r, id: idx }));
+  
+  let regions = (aiData.regions || []).map((r, idx) => ({ ...r, id: idx }));
+
+  // Color mappings for fallback regions
+  const cNameMap = {
+    black: '검정색',
+    red: '빨간색',
+    blue: '파란색',
+    yellow: '노란색',
+    green: '초록색',
+    purple: '보라색',
+    orange: '주황색',
+    cyan: '청록색',
+    pink: '분홍색',
+    brown: '갈색',
+    lime: '연두색',
+    navy: '남색',
+    gray: '회색',
+    mixed_unknown: '혼합색'
+  };
+  const partKorMap = {
+    head: '머리', face: '얼굴', neck: '목', chest: '가슴', stomach: '배', waist: '허리',
+    left_shoulder: '왼쪽 어깨', left_arm: '왼쪽 팔', left_hand: '왼쪽 손',
+    right_shoulder: '오른쪽 어깨', right_arm: '오른쪽 팔', right_hand: '오른쪽 손',
+    left_thigh: '왼쪽 허벅지', left_knee: '왼쪽 무릎', left_shin: '왼쪽 정강이', left_foot: '왼쪽 발',
+    right_thigh: '오른쪽 허벅지', right_knee: '오른쪽 무릎', right_shin: '오른쪽 정강이', right_foot: '오른쪽 발',
+    upper_legs: '허벅지', lower_legs: '종아리', feet: '발'
+  };
+  const emotionKorMap = {
+    numbness: '무감각/우울', calm: '평온/안정', anger: '분노/스트레스', sadness: '슬픔/우울',
+    stress: '긴장/스트레스', energy: '에너지/활력', tension: '불안/긴장', confusion: '혼란/불안',
+    love: '사랑/온기', warmth: '온기', pain: '통증/상처'
+  };
+
+  const clusters = [
+    { name: 'black', check: (h, s, v) => s < 35 && v < 90, color_hex: '#2E2E2E', emotion: 'numbness', pattern: 'spiral' },
+    { name: 'green_cyan', check: (h, s, v) => h >= 35 && h < 100 && s > 35 && v < 245, color_hex: '#34C759', emotion: 'calm', pattern: 'helical_coil' },
+    { name: 'red', check: (h, s, v) => (h < 10 || h >= 155) && s > 35 && v < 245, color_hex: '#FF3B30', emotion: 'anger', pattern: 'scribble' },
+    { name: 'blue', check: (h, s, v) => h >= 100 && h < 130 && s > 35 && v < 245, color_hex: '#007AFF', emotion: 'sadness', pattern: 'cross_hatch' },
+    { name: 'orange_brown', check: (h, s, v) => h >= 10 && h < 22 && s > 35 && v < 245, color_hex: '#FF9500', emotion: 'stress', pattern: 'zigzag' },
+    { name: 'yellow', check: (h, s, v) => h >= 22 && h < 35 && s > 35 && v < 245, color_hex: '#FFCC00', emotion: 'energy', pattern: 'parallel_lines' },
+    { name: 'purple', check: (h, s, v) => h >= 130 && h < 155 && s > 35 && v < 245, color_hex: '#5856D6', emotion: 'tension', pattern: 'helical_coil' },
+    { name: 'pink', check: (h, s, v) => (h < 10 || h >= 150) && (s < 120 || v > 200) && s > 35 && v < 245, color_hex: '#FF2D55', emotion: 'love', pattern: 'scribble' },
+    { name: 'brown', check: (h, s, v) => h >= 10 && h < 22 && v < 130 && s > 35 && v < 245, color_hex: '#A25A38', emotion: 'pain', pattern: 'zigzag' },
+    { name: 'lime', check: (h, s, v) => ((h >= 35 && h < 48) || (h >= 48 && h < 60 && s > 150)) && s > 35 && v < 245, color_hex: '#A4C639', emotion: 'energy', pattern: 'parallel_lines' },
+    { name: 'navy', check: (h, s, v) => h >= 100 && h < 130 && v < 100 && s > 35 && v < 245, color_hex: '#000080', emotion: 'sadness', pattern: 'cross_hatch' },
+    { name: 'gray', check: (h, s, v) => s < 20 && v >= 90 && v < 120, color_hex: '#8E8E93', emotion: 'numbness', pattern: 'parallel_lines' },
+    { name: 'mixed_unknown', check: (h, s, v) => s < 40 && !(s < 35 && v < 90) && !(s < 20 && v >= 90 && v < 120), color_hex: '#808080', emotion: 'confusion', pattern: 'scribble' }
+  ];
+
+  // 2a. Reconstruct missing bboxes returned by OpenAI
+  for (const r of regions) {
+    if (!r.bbox || typeof r.bbox.x !== 'number' || typeof r.bbox.y !== 'number' || typeof r.bbox.width !== 'number' || typeof r.bbox.height !== 'number') {
+      const colName = (r.color_name || 'unknown').toLowerCase();
+      // Match with our clusters
+      const cluster = clusters.find(c => {
+        if (c.name === colName) return true;
+        if (c.name === 'green_cyan' && (colName === 'green' || colName === 'cyan')) return true;
+        if (c.name === 'orange_brown' && (colName === 'orange' || colName === 'brown')) return true;
+        return false;
+      });
+      if (cluster) {
+        const mask = new Uint8Array(w * h);
+        for (let i = 0; i < w * h; i++) {
+          const i4 = i * 4;
+          const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
+          if (tplR < 235 || tplG < 235 || tplB < 235) continue;
+          const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
+          const [hVal, sVal, vVal] = rgbToHsv(pr, pg, pb);
+          if (cluster.check(hVal, sVal, vVal)) {
+            mask[i] = 1;
+          }
+        }
+        const comps = connectedComponents(mask, w, h);
+        if (comps.length > 0) {
+          let largestComp = comps[0];
+          for (const comp of comps) {
+            if (comp.length > largestComp.length) largestComp = comp;
+          }
+          let minX = w, maxX = 0, minY = h, maxY = 0;
+          for (const idx of largestComp) {
+            const cx = idx % w;
+            const cy = Math.floor(idx / w);
+            if (cx < minX) minX = cx;
+            if (cx > maxX) maxX = cx;
+            if (cy < minY) minY = cy;
+            if (cy > maxY) maxY = cy;
+          }
+          r.bbox = {
+            x: minX / w,
+            y: minY / h,
+            width: (maxX - minX + 1) / w,
+            height: (maxY - minY + 1) / h
+          };
+          console.log(`[analysis] Reconstructed missing bbox for region #${r.id} (${r.color_name})`);
+        }
+      }
+    }
+  }
+
+  // 2b. Compute coverage of stroke pixels inside OpenAI raw bboxes
+  let totalStrokePixels = 0;
+  let openaiStrokePixels = 0;
+  const inOpenaiBbox = new Uint8Array(w * h);
+  for (const r of regions) {
+    if (r.bbox) {
+      const bx = Math.round(r.bbox.x * w);
+      const by = Math.round(r.bbox.y * h);
+      const bw = Math.round(r.bbox.width * w);
+      const bh = Math.round(r.bbox.height * h);
+      const x1 = Math.max(0, bx), y1 = Math.max(0, by);
+      const x2 = Math.min(w - 1, bx + bw), y2 = Math.min(h - 1, by + bh);
+      for (let y = y1; y <= y2; y++) {
+        for (let x = x1; x <= x2; x++) {
+          inOpenaiBbox[y * w + x] = 1;
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < w * h; i++) {
+    const i4 = i * 4;
+    const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
+    const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
+    if (outsideMask[i] === 0 && isStrokePixel(pr, pg, pb, tplR, tplG, tplB)) {
+      totalStrokePixels++;
+      if (inOpenaiBbox[i]) {
+        openaiStrokePixels++;
+      }
+    }
+  }
+
+  const coverage = totalStrokePixels > 0 ? (openaiStrokePixels / totalStrokePixels) : 1.0;
+  const coverageThreshold = totalStrokePixels < 5000 ? 0.75 : 0.85;
+  console.log(`[analysis] Stroke coverage inside OpenAI bboxes: ${coverage.toFixed(3)} (Threshold: ${coverageThreshold})`);
+
+  // 2c. Run fallback color segmentation if coverage is low
+  if (coverage < coverageThreshold) {
+    console.log(`[analysis] Coverage is low. Executing fallback local color segmentation…`);
+    const closeDist = Math.max(w * 0.025, 25);
+    const candidateRegions = [];
+
+    for (const cluster of clusters) {
+      const mask = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          const i4 = i * 4;
+          const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
+          if (tplR < 235 || tplG < 235 || tplB < 235) continue; // Exclude outline
+          const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
+          const [hVal, sVal, vVal] = rgbToHsv(pr, pg, pb);
+          if (cluster.check(hVal, sVal, vVal)) {
+            mask[i] = 1;
+          }
+        }
+      }
+
+      const comps = connectedComponents(mask, w, h);
+      const colorCandidates = [];
+
+      for (const comp of comps) {
+        if (comp.length < 40) continue; // Noise filter
+
+        // mixed_unknown constraint
+        if (cluster.name === 'mixed_unknown') {
+          if (comp.length <= 80) continue;
+          let insideCount = 0;
+          for (const idx of comp) {
+            if (outsideMask[idx] === 0) insideCount++;
+          }
+          if (insideCount / comp.length <= 0.85) continue;
+        }
+
+        let minX = w, maxX = 0, minY = h, maxY = 0;
+        let sumH = 0;
+        for (const idx of comp) {
+          const cx = idx % w;
+          const cy = Math.floor(idx / w);
+          if (cx < minX) minX = cx;
+          if (cx > maxX) maxX = cx;
+          if (cy < minY) minY = cy;
+          if (cy > maxY) maxY = cy;
+          const i4 = idx * 4;
+          const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
+          const [hVal] = rgbToHsv(pr, pg, pb);
+          sumH += hVal;
+        }
+        colorCandidates.push({
+          pixels: comp,
+          avgHue: sumH / comp.length,
+          box: { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 }
+        });
+      }
+
+      // Merge candidates of the same color based on proximity (closeDist)
+      let mergedAny = true;
+      while (mergedAny) {
+        mergedAny = false;
+        for (let i = 0; i < colorCandidates.length; i++) {
+          for (let j = i + 1; j < colorCandidates.length; j++) {
+            if (areBoxesClose(colorCandidates[i].box, colorCandidates[j].box, closeDist)) {
+              // Merge j into i
+              colorCandidates[i].pixels = colorCandidates[i].pixels.concat(colorCandidates[j].pixels);
+              // Recalculate box
+              let minX = w, maxX = 0, minY = h, maxY = 0;
+              for (const idx of colorCandidates[i].pixels) {
+                const cx = idx % w;
+                const cy = Math.floor(idx / w);
+                if (cx < minX) minX = cx;
+                if (cx > maxX) maxX = cx;
+                if (cy < minY) minY = cy;
+                if (cy > maxY) maxY = cy;
+              }
+              colorCandidates[i].box = { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+              colorCandidates.splice(j, 1);
+              mergedAny = true;
+              break;
+            }
+          }
+          if (mergedAny) break;
+        }
+      }
+
+      // Push to general candidate list
+      for (const cand of colorCandidates) {
+        let finalColorName = cluster.name;
+        let finalColorHex = cluster.color_hex;
+        let finalEmotion = cluster.emotion;
+        let finalPattern = cluster.pattern;
+
+        if (finalColorName === 'green_cyan') {
+          if (cand.avgHue >= 78) {
+            finalColorName = 'cyan';
+            finalColorHex = '#5AC8FA';
+            finalEmotion = 'confusion';
+            finalPattern = 'spiky_stars';
+          } else {
+            finalColorName = 'green';
+            finalColorHex = '#34C759';
+            finalEmotion = 'calm';
+            finalPattern = 'helical_coil';
+          }
+        } else if (finalColorName === 'orange_brown') {
+          if (cand.avgHue < 22 && cand.avgHue >= 10 && cand.box.width * cand.box.height > 0) {
+            // Find average value of pixels
+            let sumV = 0;
+            for (const idx of cand.pixels) {
+              const pr = alignedDrwData[idx * 4], pg = alignedDrwData[idx * 4 + 1], pb = alignedDrwData[idx * 4 + 2];
+              const [, , vVal] = rgbToHsv(pr, pg, pb);
+              sumV += vVal;
+            }
+            const avgV = sumV / cand.pixels.length;
+            if (avgV < 130) {
+              finalColorName = 'brown';
+              finalColorHex = '#A25A38';
+              finalEmotion = 'pain';
+              finalPattern = 'zigzag';
+            } else {
+              finalColorName = 'orange';
+              finalColorHex = '#FF9500';
+              finalEmotion = 'stress';
+              finalPattern = 'zigzag';
+            }
+          }
+        }
+
+        candidateRegions.push({
+          color_name: finalColorName,
+          color_hex: finalColorHex,
+          emotion_label: finalEmotion,
+          pattern: finalPattern,
+          box: cand.box,
+          pixels: cand.pixels
+        });
+      }
+    }
+
+    // Match candidate regions vs OpenAI regions using IoU
+    for (const cand of candidateRegions) {
+      let maxIoU = 0;
+      const cBoxNorm = {
+        x: cand.box.x / w,
+        y: cand.box.y / h,
+        width: cand.box.width / w,
+        height: cand.box.height / h
+      };
+      for (const reg of regions) {
+        if (reg.bbox) {
+          const iou = getIoU(cBoxNorm, reg.bbox);
+          if (iou > maxIoU) maxIoU = iou;
+        }
+      }
+
+      if (maxIoU < 0.20) {
+        // Build metadata for fallback region
+        const cx = cand.box.x + cand.box.width / 2;
+        const cy = cand.box.y + cand.box.height / 2;
+        const bodyPart = bodyRegion(cy, h);
+        const side = bodySide(cx, w);
+
+        const cKor = cNameMap[cand.color_name] || cand.color_name;
+        const partKor = partKorMap[bodyPart] || bodyPart;
+        const emoKor = emotionKorMap[cand.emotion_label] || cand.emotion_label;
+
+        const newReg = {
+          id: regions.length,
+          body_part: bodyPart,
+          side: side,
+          color_name: cand.color_name,
+          color_hex: cand.color_hex,
+          pattern: cand.pattern,
+          emotion_label: cand.emotion_label,
+          bbox: cBoxNorm,
+          description: `- 색: ${cKor} (감정: ${emoKor})\n- 패턴: ${cand.pattern}\n- 위치: ${partKor}\n- 특징: 로컬 색상 분석을 통해 감지된 영역입니다.`
+        };
+        regions.push(newReg);
+        console.log(`[analysis] Added fallback region #${newReg.id} (${newReg.color_name})`);
+      }
+    }
+  }
 
   setProgress(55);
-  setStatus(`AI detected ${regions.length} regions. Rendering…`);
+  setStatus(`Processing ${regions.length} regions. Rendering…`);
   await sleep(10);
 
-  /* ── Phase 3: Process each region ──────────────────────────── */
+  /* ── Phase 3: Process each region (refinement & sprite extraction) ── */
   const fw = templateImg.width, fh = templateImg.height;
 
   for (const r of regions) {
-    // Convert normalised bbox → work-res pixels
-    const bx = Math.round((r.bbox?.x || 0) * w);
-    const by = Math.round((r.bbox?.y || 0) * h);
-    const bw = Math.round((r.bbox?.width || 0.1) * w);
-    const bh = Math.round((r.bbox?.height || 0.1) * h);
-    const x1 = Math.max(0, bx), y1 = Math.max(0, by);
-    const x2 = Math.min(w, bx + bw), y2 = Math.min(h, by + bh);
-    const rw = x2 - x1, rh = y2 - y1;
+    const bx_raw = Math.round((r.bbox?.x || 0) * w);
+    const by_raw = Math.round((r.bbox?.y || 0) * h);
+    const bw_raw = Math.round((r.bbox?.width || 0.1) * w);
+    const bh_raw = Math.round((r.bbox?.height || 0.1) * h);
+
+    // Padding (min 12px, 20%)
+    const padX = Math.max(12, Math.round(bw_raw * 0.20));
+    const padY = Math.max(12, Math.round(bh_raw * 0.20));
+    const x1 = Math.max(0, bx_raw - padX);
+    const y1 = Math.max(0, by_raw - padY);
+    const x2 = Math.min(w - 1, bx_raw + bw_raw + padX);
+    const y2 = Math.min(h - 1, by_raw + bh_raw + padY);
+
+    // Scan for actual strokes to refine bounding box
+    let minX = w, maxX = 0, minY = h, maxY = 0;
+    let foundStrokes = false;
+    for (let py = y1; py <= y2; py++) {
+      for (let px = x1; px <= x2; px++) {
+        const idx = (py * w + px) * 4;
+        const pr = alignedDrwData[idx], pg = alignedDrwData[idx+1], pb = alignedDrwData[idx+2];
+        const tplR = tplData[idx], tplG = tplData[idx+1], tplB = tplData[idx+2];
+        if (isStrokePixel(pr, pg, pb, tplR, tplG, tplB)) {
+          if (px < minX) minX = px;
+          if (px > maxX) maxX = px;
+          if (py < minY) minY = py;
+          if (py > maxY) maxY = py;
+          foundStrokes = true;
+        }
+      }
+    }
+
+    let bx = bx_raw, by = by_raw, bw = bw_raw, bh = bh_raw;
+    if (foundStrokes) {
+      bx = minX;
+      by = minY;
+      bw = maxX - minX + 1;
+      bh = maxY - minY + 1;
+    }
+
+    // Update normalized bbox on region object
+    r.bbox = {
+      x: +(bx / w).toFixed(4),
+      y: +(by / h).toFixed(4),
+      width: +(bw / w).toFixed(4),
+      height: +(bh / h).toFixed(4)
+    };
 
     // Full-resolution bounding box
     r.bounding_box = {
-      x: Math.round(x1 * fw / w), y: Math.round(y1 * fh / h),
-      width: Math.round(rw * fw / w), height: Math.round(rh * fh / h)
+      x: Math.round(bx * fw / w), y: Math.round(by * fh / h),
+      width: Math.round(bw * fw / w), height: Math.round(bh * fh / h)
     };
-    const cx = x1 + rw / 2, cy = y1 + rh / 2;
+    const cx = bx + bw / 2, cy = by + bh / 2;
     r.center = { x: Math.round(cx * fw / w), y: Math.round(cy * fh / h) };
     r.center_normalized = { x: +(cx / w).toFixed(3), y: +(cy / h).toFixed(3) };
     r.body_region = r.body_part || bodyRegion(cy, h);
     r.body_side = r.side || bodySide(cx, w);
     r.body_location = r.body_part || 'chest';
 
-    // Extract sprite (transparent bg)
-    if (rw > 0 && rh > 0) {
-      const sprC = document.createElement('canvas'); sprC.width = rw; sprC.height = rh;
+    // Extract sprite with refined stroke mask (non-stroke -> alpha=0)
+    if (bw > 0 && bh > 0) {
+      const sprC = document.createElement('canvas'); sprC.width = bw; sprC.height = bh;
       const sprCtx = sprC.getContext('2d');
-      const sprD = sprCtx.createImageData(rw, rh);
+      const sprD = sprCtx.createImageData(bw, bh);
       let pxCount = 0;
-      for (let py = 0; py < rh; py++) for (let px = 0; px < rw; px++) {
-        const si = ((y1 + py) * w + (x1 + px)) * 4;
-        const di = (py * rw + px) * 4;
-        const pr = alignedDrwData[si], pg = alignedDrwData[si+1], pb = alignedDrwData[si+2];
-        if (pr < 230 || pg < 230 || pb < 230) {
-          sprD.data[di] = pr; sprD.data[di+1] = pg; sprD.data[di+2] = pb; sprD.data[di+3] = 255;
-          pxCount++;
+      for (let py = 0; py < bh; py++) {
+        for (let px = 0; px < bw; px++) {
+          const targetX = bx + px;
+          const targetY = by + py;
+          const si = (targetY * w + targetX) * 4;
+          const di = (py * bw + px) * 4;
+          const pr = alignedDrwData[si], pg = alignedDrwData[si+1], pb = alignedDrwData[si+2];
+          const tplR = tplData[si], tplG = tplData[si+1], tplB = tplData[si+2];
+          if (isStrokePixel(pr, pg, pb, tplR, tplG, tplB)) {
+            sprD.data[di] = pr;
+            sprD.data[di+1] = pg;
+            sprD.data[di+2] = pb;
+            sprD.data[di+3] = 255;
+            pxCount++;
+          } else {
+            sprD.data[di] = 0;
+            sprD.data[di+1] = 0;
+            sprD.data[di+2] = 0;
+            sprD.data[di+3] = 0;
+          }
         }
       }
       sprCtx.putImageData(sprD, 0, 0);
@@ -1105,30 +1585,27 @@ async function runAnalysis() {
 
   const fullOutsideMask = getOutsideMask({ width: fw, data: fullTD }, fw, fh);
 
-  // Build full-res bbox mask from AI regions (with 5 % padding)
-  const bboxMask = new Uint8Array(fw * fh);
-  for (const r of regions) {
-    const bb = r.bounding_box;
-    const pad = Math.round(Math.max(bb.width, bb.height) * 0.05);
-    const bx1 = Math.max(0, bb.x - pad), by1 = Math.max(0, bb.y - pad);
-    const bx2 = Math.min(fw, bb.x + bb.width + pad), by2 = Math.min(fh, bb.y + bb.height + pad);
-    for (let y = by1; y < by2; y++) for (let x = bx1; x < bx2; x++) bboxMask[y * fw + x] = 1;
-  }
-
   for (let i = 0; i < fw * fh; i++) {
     const i4 = i * 4;
-    // Outside silhouette → transparent
-    if (fullOutsideMask[i] === 1) { fullD.data[i4+3] = 0; continue; }
-    // Template outline → white
-    if (fullTD[i4] < 235 || fullTD[i4+1] < 235 || fullTD[i4+2] < 235) {
-      fullD.data[i4]=255; fullD.data[i4+1]=255; fullD.data[i4+2]=255; fullD.data[i4+3]=255; continue;
+    // 1. Outside silhouette → transparent
+    if (fullOutsideMask[i] === 1) {
+      fullD.data[i4+3] = 0;
+      continue;
     }
-    // Inside bbox & coloured → keep
-    if (bboxMask[i] && (fullD.data[i4]<230 || fullD.data[i4+1]<230 || fullD.data[i4+2]<230)) {
+    // 2. Template outline → graytone (245, 245, 245)
+    if (fullTD[i4] < 235 || fullTD[i4+1] < 235 || fullTD[i4+2] < 235) {
+      fullD.data[i4]=245; fullD.data[i4+1]=245; fullD.data[i4+2]=245; fullD.data[i4+3]=255;
+      continue;
+    }
+    // 3. Inside silhouette & isStrokePixel → keep drawing color
+    const pr = fullD.data[i4];
+    const pg = fullD.data[i4+1];
+    const pb = fullD.data[i4+2];
+    if (isStrokePixel(pr, pg, pb, fullTD[i4], fullTD[i4+1], fullTD[i4+2])) {
       fullD.data[i4+3] = 255;
     } else {
-      // White silhouette bg
-      fullD.data[i4]=255; fullD.data[i4+1]=255; fullD.data[i4+2]=255; fullD.data[i4+3]=255;
+      // Graytone silhouette body shape (245, 245, 245)
+      fullD.data[i4]=245; fullD.data[i4+1]=245; fullD.data[i4+2]=245; fullD.data[i4+3]=255;
     }
   }
   fullCtx.putImageData(fullD, 0, 0);
@@ -1151,21 +1628,24 @@ async function runAnalysis() {
     annCtx.fillText(`#${r.id} ${r.color_name} (${r.emotion_label})`, bx + 2, by - 4);
   }
 
-  /* ── Phase 6: Diff Map ─────────────────────────────────────── */
+  /* ── Phase 6: Diff Map (pixel-perfect strokes on black background) ── */
   const cDiff = document.getElementById('cDiff'); cDiff.width = w; cDiff.height = h;
   const diffCtx = cDiff.getContext('2d');
   const diffImg = diffCtx.createImageData(w, h);
-  for (const r of regions) {
-    const bx = Math.max(0, Math.round((r.bbox?.x||0)*w));
-    const by = Math.max(0, Math.round((r.bbox?.y||0)*h));
-    const bw = Math.round((r.bbox?.width||0)*w);
-    const bh = Math.round((r.bbox?.height||0)*h);
-    for (let py = 0; py < bh && (by+py) < h; py++) for (let px = 0; px < bw && (bx+px) < w; px++) {
-      const si = ((by+py)*w+(bx+px))*4;
-      if (alignedDrwData[si]<230||alignedDrwData[si+1]<230||alignedDrwData[si+2]<230) {
-        diffImg.data[si]=alignedDrwData[si]; diffImg.data[si+1]=alignedDrwData[si+1];
-        diffImg.data[si+2]=alignedDrwData[si+2]; diffImg.data[si+3]=255;
-      }
+  for (let i = 0; i < w * h; i++) {
+    const i4 = i * 4;
+    const pr = alignedDrwData[i4], pg = alignedDrwData[i4+1], pb = alignedDrwData[i4+2];
+    const tplR = tplData[i4], tplG = tplData[i4+1], tplB = tplData[i4+2];
+    if (outsideMask[i] === 0 && isStrokePixel(pr, pg, pb, tplR, tplG, tplB)) {
+      diffImg.data[i4] = pr;
+      diffImg.data[i4+1] = pg;
+      diffImg.data[i4+2] = pb;
+      diffImg.data[i4+3] = 255;
+    } else {
+      diffImg.data[i4] = 0;
+      diffImg.data[i4+1] = 0;
+      diffImg.data[i4+2] = 0;
+      diffImg.data[i4+3] = 255;
     }
   }
   diffCtx.putImageData(diffImg, 0, 0);
@@ -1202,9 +1682,7 @@ async function runAnalysis() {
     document.getElementById('analyzeBtn').disabled = false;
   }
   if (unityConnected) sendToUnity();
-}
-
-function hexToRgb(hex) {
+}function hexToRgb(hex) {
   const m = (hex || '#808080').replace('#','').match(/.{2}/g);
   return m ? m.map(x => parseInt(x, 16)) : [128,128,128];
 }
