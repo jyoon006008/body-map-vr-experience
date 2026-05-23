@@ -1120,9 +1120,9 @@ function mergeSameColorRegions(candidates, workW, workH, templateBBox) {
     const aspectLimit = cfg.aspectLimit;
     const skipCircularity = cfg.skipCircularity;
 
-    const strokeArea = r.pixels.length;
+    const pixelCount = r.pixels.length;
     const bboxArea = compW * compH;
-    const strokeDensity = strokeArea / bboxArea;
+    const strokeDensity = pixelCount / bboxArea;
     const aspectRatio = Math.max(compW, compH) / Math.min(compW, compH);
 
     const circ = calculateCircularity(r.pixels, workW, workH);
@@ -1146,9 +1146,9 @@ function mergeSameColorRegions(candidates, workW, workH, templateBBox) {
       removed = true;
       removalReason = `aspectRatio (${aspectRatio.toFixed(2)} >= ${aspectLimit})`;
     }
-    if (!removed && strokeArea <= minArea) {
+    if (!removed && pixelCount <= minArea) {
       removed = true;
-      removalReason = `minArea (${strokeArea} <= ${minArea})`;
+      removalReason = `minArea (${pixelCount} <= ${minArea})`;
     }
     if (!removed && !skipCircularity && circ <= 0.05) {
       removed = true;
@@ -1158,8 +1158,8 @@ function mergeSameColorRegions(candidates, workW, workH, templateBBox) {
     if (removed) {
       console.log("[removed]", {
         color: r.color,
-        area: strokeArea,
-        density: strokeDensity,
+        pixelCount: pixelCount,
+        strokeDensity: strokeDensity,
         aspectRatio: aspectRatio,
         circularity: circ,
         removalReason: removalReason
@@ -2017,6 +2017,7 @@ async function runAnalysis() {
 
   const regions = [];
   for (const r of regionsList) {
+    const pixelCount = r.pixels.length;
     const bx = Math.round(r.bbox.x * workW);
     const by = Math.round(r.bbox.y * workH);
     const bw = Math.round(r.bbox.width * workW);
@@ -2122,16 +2123,19 @@ async function runAnalysis() {
       center: { x: Math.round((bx + bw / 2) * outW / workW), y: Math.round((by + bh / 2) * outH / workH) },
       center_normalized: { x: +ncx.toFixed(3), y: +ncy.toFixed(3) },
       image_base64: image_base64,
-      pixel_count: Math.round(pxCount * (outW * outH) / (workW * workH)),
-      area_ratio: +(pxCount / (workW * workH)).toFixed(4),
+      pixelCount: pixelCount,
+      pixel_count: Math.round(pixelCount * (outW * outH) / (workW * workH)),
+      area_ratio: +(pixelCount / (workW * workH)).toFixed(4),
       rawBBox: r.rawBBox,
       maskPixels: r.pixels
     });
+    const region = regions[regions.length - 1];
+    console.log("region pixelCount", region.id, region.color, region.pixelCount);
 
     console.log({
       id: r.id,
       color: r.color,
-      pixelCount: r.pixels.length,
+      pixelCount: pixelCount,
       rawBBox: {
         x: Math.round(r.rawBBox.x * workW),
         y: Math.round(r.rawBBox.y * workH),
