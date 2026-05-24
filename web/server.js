@@ -125,6 +125,11 @@ Return ONLY a JSON object of this structure:
   }
 });
 
+app.post('/api/log', (req, res) => {
+  console.log('[browser-log]', req.body.message);
+  res.json({ ok: true });
+});
+
 /* ── Start ──────────────────────────────────────────────────── */
 app.listen(PORT, () => {
   console.log(`\n  🎨  Body Map server → http://localhost:${PORT}`);
