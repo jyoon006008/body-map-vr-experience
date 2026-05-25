@@ -44,3 +44,7 @@ unity/api_keys.json
 # Backend local dev
 web/.env
 web/node_modules/
+
+# Exclude large zip archives, keep only split parts
+builds/*.zip
+builds/split_zip.py
