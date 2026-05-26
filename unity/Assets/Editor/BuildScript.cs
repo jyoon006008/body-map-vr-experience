@@ -12,6 +12,7 @@ public static class BuildScript
 
         string[] scenes = {
             "Assets/Scenes/BootstrapScene.unity",
+            "Assets/Scenes/SafePlaceIntroScene.unity",
             "Assets/Scenes/MapSelectionScene.unity",
             "Assets/Scenes/LoadingScene.unity",
             "Assets/Scenes/VRArtTherapyScene.unity",

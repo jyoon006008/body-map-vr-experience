@@ -1,5 +1,7 @@
-using UnityEngine;
 using System.Collections.Generic;
+using TMPro;
+using UnityEngine;
+using UnityEngine.UI;
 
 public class MapSelectionManager : MonoBehaviour
 {
@@ -9,23 +11,22 @@ public class MapSelectionManager : MonoBehaviour
     [Header("UI References")]
     public Transform cardParent;
 
-    private TMPro.TextMeshProUGUI languageToggleText;
+    private TextMeshProUGUI languageToggleText;
 
     void Start()
     {
         Debug.Log("[MapSelectionManager] Static UI MapSelectionManager initialized.");
-        
-        // Find language toggle button component dynamically
+
         GameObject toggleBtnObj = GameObject.Find("ChangeLanguageButton");
         if (toggleBtnObj != null)
         {
-            var btn = toggleBtnObj.GetComponent<UnityEngine.UI.Button>();
+            var btn = toggleBtnObj.GetComponent<Button>();
             if (btn != null)
             {
                 btn.onClick.RemoveAllListeners();
                 btn.onClick.AddListener(ToggleLanguage);
             }
-            languageToggleText = toggleBtnObj.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+            languageToggleText = toggleBtnObj.GetComponentInChildren<TextMeshProUGUI>();
         }
 
         ApplyLocalization();
@@ -43,111 +44,92 @@ public class MapSelectionManager : MonoBehaviour
         {
             Debug.LogWarning("[MapSelectionManager] GameManager.Instance is null. Local toggle only.");
         }
+
         ApplyLocalization();
     }
 
     private void ApplyLocalization()
     {
-        bool isKorean = true;
-        if (GameManager.Instance != null)
-        {
-            isKorean = GameManager.Instance.currentLanguage == "ko";
-        }
+        bool isKorean = GameManager.Instance == null || GameManager.Instance.currentLanguage == "ko";
 
-        // Translate Title & Subtitle
-        GameObject titleObj = GameObject.Find("TitleText");
-        if (titleObj != null)
-        {
-            var titleText = titleObj.GetComponent<TMPro.TextMeshProUGUI>();
-            if (titleText != null)
-            {
-                titleText.text = isKorean ? "환경 선택" : "SELECT ENVIRONMENT";
-                if (isKorean) BodyMapAIController.ApplyKoreanFont(titleText);
-            }
-        }
+        SetText("TitleText", isKorean ? "환경 선택" : "SELECT ENVIRONMENT", isKorean);
+        SetText(
+            "SubtitleText",
+            isKorean ? "body mapping 세션을 진행할 환경을 선택하세요" : "Choose an environment for the body mapping session",
+            isKorean);
 
-        GameObject subtitleObj = GameObject.Find("SubtitleText");
-        if (subtitleObj != null)
-        {
-            var subtitleText = subtitleObj.GetComponent<TMPro.TextMeshProUGUI>();
-            if (subtitleText != null)
-            {
-                subtitleText.text = isKorean 
-                    ? "VR 미술 치료 세션을 시작할 환경을 선택하세요" 
-                    : "Choose an environment to begin your VR Art Therapy session";
-                if (isKorean) BodyMapAIController.ApplyKoreanFont(subtitleText);
-            }
-        }
-
-        // Translate Cards
         foreach (var opt in mapOptions)
         {
             GameObject cardObj = GameObject.Find("Card_" + opt.sceneName);
-            if (cardObj != null)
+            if (cardObj == null) continue;
+
+            SetChildText(cardObj.transform, "DisplayName", GetDisplayName(opt.sceneName, isKorean), isKorean);
+            SetChildText(cardObj.transform, "Description", GetDescription(opt.sceneName, isKorean), isKorean);
+
+            Transform btnTrans = cardObj.transform.Find("SelectButton");
+            if (btnTrans != null)
             {
-                // Find DisplayName text
-                Transform nameTrans = cardObj.transform.Find("DisplayName");
-                if (nameTrans != null)
-                {
-                    var nameText = nameTrans.GetComponent<TMPro.TextMeshProUGUI>();
-                    if (nameText != null)
-                    {
-                        if (opt.sceneName == "Env_URP_Garden")
-                            nameText.text = isKorean ? "정원 환경" : "Garden Environment";
-                        else if (opt.sceneName == "Env_URP_Desert")
-                            nameText.text = isKorean ? "사막 오아시스" : "Desert Oasis";
-                        
-                        if (isKorean) BodyMapAIController.ApplyKoreanFont(nameText);
-                    }
-                }
-
-                // Find Description text
-                Transform descTrans = cardObj.transform.Find("Description");
-                if (descTrans != null)
-                {
-                    var descText = descTrans.GetComponent<TMPro.TextMeshProUGUI>();
-                    if (descText != null)
-                    {
-                        if (opt.sceneName == "Env_URP_Garden")
-                            descText.text = isKorean 
-                                ? "나무와 중앙 상호작용 공간이 있는 열린 자연 환경입니다." 
-                                : "Open natural environment with trees and central interaction space.";
-                        else if (opt.sceneName == "Env_URP_Desert")
-                            descText.text = isKorean 
-                                ? "차분한 분위기의 드넓은 사막 환경입니다." 
-                                : "Wide open desert-like environment with calm atmosphere.";
-
-                        if (isKorean) BodyMapAIController.ApplyKoreanFont(descText);
-                    }
-                }
-
-                // Find SelectButton Text
-                Transform btnTrans = cardObj.transform.Find("SelectButton");
-                if (btnTrans != null)
-                {
-                    Transform btnTextTrans = btnTrans.Find("Text");
-                    if (btnTextTrans != null)
-                    {
-                        var btnText = btnTextTrans.GetComponent<TMPro.TextMeshProUGUI>();
-                        if (btnText != null)
-                        {
-                            btnText.text = isKorean ? "선택" : "Select";
-                            if (isKorean) BodyMapAIController.ApplyKoreanFont(btnText);
-                        }
-                    }
-                }
+                SetChildText(btnTrans, "Text", isKorean ? "선택" : "Select", isKorean);
             }
         }
 
-        // Update Language Toggle Button Text
         if (languageToggleText != null)
         {
-            languageToggleText.text = isKorean ? "Change Language: English" : "언어 변경: 한국어";
-            if (isKorean)
-            {
-                BodyMapAIController.ApplyKoreanFont(languageToggleText);
-            }
+            languageToggleText.text = isKorean ? "언어 변경: English" : "Change Language: 한국어";
+            if (isKorean) BodyMapAIController.ApplyKoreanFont(languageToggleText);
         }
+    }
+
+    private void SetText(string objectName, string value, bool applyKoreanFont)
+    {
+        GameObject obj = GameObject.Find(objectName);
+        if (obj == null) return;
+
+        var text = obj.GetComponent<TextMeshProUGUI>();
+        if (text == null) return;
+
+        text.text = value;
+        if (applyKoreanFont) BodyMapAIController.ApplyKoreanFont(text);
+    }
+
+    private void SetChildText(Transform root, string childName, string value, bool applyKoreanFont)
+    {
+        Transform child = root.Find(childName);
+        if (child == null) return;
+
+        var text = child.GetComponent<TextMeshProUGUI>();
+        if (text == null) return;
+
+        text.text = value;
+        if (applyKoreanFont) BodyMapAIController.ApplyKoreanFont(text);
+    }
+
+    private string GetDisplayName(string sceneName, bool isKorean)
+    {
+        if (sceneName == "Env_URP_Garden") return isKorean ? "정원 환경" : "Garden Environment";
+        if (sceneName == "Env_URP_Desert") return isKorean ? "사막 오아시스" : "Desert Oasis";
+        if (sceneName == "Env_URP_Terminal") return isKorean ? "터미널 격납고" : "Terminal Hangar";
+        if (sceneName == "Env_URP_Gallery") return isKorean ? "갤러리" : "Gallery";
+        return isKorean ? "환경" : "Environment";
+    }
+
+    private string GetDescription(string sceneName, bool isKorean)
+    {
+        if (sceneName == "Env_URP_Garden")
+        {
+            return isKorean
+                ? "나무와 중앙 상호작용 공간이 있는 body mapping 세션 환경입니다."
+                : "Open natural environment with trees and central interaction space.";
+        }
+
+        if (sceneName == "Env_URP_Desert")
+        {
+            return isKorean
+                ? "차분한 분위기의 넓은 사막 오아시스 body mapping 세션 환경입니다."
+                : "Wide open desert-like environment with calm atmosphere.";
+        }
+
+        return isKorean ? "body mapping 세션을 진행할 수 있는 환경입니다." : "An environment for the body mapping session.";
     }
 
     public void SelectMap(string sceneName)
@@ -173,13 +155,9 @@ public class MapSelectionManager : MonoBehaviour
             }
         }
 
-        // Fallback display names
         if (displayName == "Unknown Environment")
         {
-            if (sceneName == "Env_URP_Garden") displayName = "Garden Environment";
-            else if (sceneName == "Env_URP_Desert") displayName = "Desert Oasis";
-            else if (sceneName == "Env_URP_Terminal") displayName = "Terminal Hangar";
-            else if (sceneName == "Env_URP_Gallery") displayName = "Gallery";
+            displayName = GetDisplayName(sceneName, false);
         }
 
         if (GameManager.Instance != null)
@@ -190,8 +168,6 @@ public class MapSelectionManager : MonoBehaviour
         {
             Debug.LogWarning("[MapSelectionManager] GameManager.Instance is null!");
         }
-
-        Debug.Log("[MapSelectionManager] Loading scene transition requested");
 
         if (SceneFlowManager.Instance != null)
         {

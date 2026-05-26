@@ -522,24 +522,7 @@ public class BodyMapReceiver : MonoBehaviour
                 // Scan is imported - always enable WASD movement
                 playerInputs.SetInputsEnabled(true);
 
-                // Check if user is holding Right Mouse Button to look around
-                bool isHoldingRightClick = Input.GetMouseButton(1);
-
-                if (isHoldingRightClick)
-                {
-                    playerInputs.cursorInputForLook = true;
-                    playerInputs.cursorLocked = true;
-                    Cursor.lockState = CursorLockMode.Locked;
-                    Cursor.visible = false;
-                }
-                else if (editMode)
-                {
-                    playerInputs.cursorInputForLook = false;
-                    playerInputs.cursorLocked = false;
-                    Cursor.lockState = CursorLockMode.None;
-                    Cursor.visible = true;
-                }
-                else if (BodyMapAIController.Instance != null && BodyMapAIController.Instance.IsUIActive())
+                if (editMode)
                 {
                     playerInputs.cursorInputForLook = false;
                     playerInputs.cursorLocked = false;
@@ -552,6 +535,13 @@ public class BodyMapReceiver : MonoBehaviour
                     playerInputs.cursorLocked = true;
                     Cursor.lockState = CursorLockMode.Locked;
                     Cursor.visible = false;
+
+                    if (BodyMapAIController.Instance != null && BodyMapAIController.Instance.IsManualTextInputActive())
+                    {
+                        playerInputs.move = Vector2.zero;
+                        playerInputs.jump = false;
+                        playerInputs.sprint = false;
+                    }
                 }
             }
         }
@@ -1149,6 +1139,7 @@ public class BodyMapReceiver : MonoBehaviour
             ShowNotice("imported new body map scan successfully");
 
             Debug.Log("[BodyMapReceiver] Import completed. Invoking OnImportCompleted.");
+            ObjectificationJsonExporter.GetOrCreate().RegisterImportedRegions(FindObjectsByType<InteractiveRegion3D>(FindObjectsSortMode.None));
             if (BodyMapAIController.Instance != null)
             {
                 BodyMapAIController.Instance.OnImportCompleted();

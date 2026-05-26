@@ -39,6 +39,11 @@ namespace StarterAssets
 		public void OnMove(InputValue value)
 		{
 			if (!inputsEnabled) return;
+			if (BodyMapAIController.Instance != null && BodyMapAIController.Instance.IsManualTextInputActive())
+			{
+				MoveInput(Vector2.zero);
+				return;
+			}
 			MoveInput(value.Get<Vector2>());
 		}
 
@@ -54,12 +59,22 @@ namespace StarterAssets
 		public void OnJump(InputValue value)
 		{
 			if (!inputsEnabled) return;
+			if (BodyMapAIController.Instance != null && BodyMapAIController.Instance.IsManualTextInputActive())
+			{
+				JumpInput(false);
+				return;
+			}
 			JumpInput(value.isPressed);
 		}
 
 		public void OnSprint(InputValue value)
 		{
 			if (!inputsEnabled) return;
+			if (BodyMapAIController.Instance != null && BodyMapAIController.Instance.IsManualTextInputActive())
+			{
+				SprintInput(false);
+				return;
+			}
 			SprintInput(value.isPressed);
 		}
 #endif

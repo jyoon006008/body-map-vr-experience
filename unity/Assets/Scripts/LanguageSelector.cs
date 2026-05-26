@@ -18,12 +18,12 @@ public class LanguageSelector : MonoBehaviour
 
         if (SceneFlowManager.Instance != null)
         {
-            SceneFlowManager.Instance.GoToMapSelection();
+            SceneFlowManager.Instance.GoToSafePlaceIntro();
         }
         else
         {
             Debug.LogWarning("[LanguageSelector] SceneFlowManager.Instance is null! Falling back to SceneManager.");
-            UnityEngine.SceneManagement.SceneManager.LoadScene("MapSelectionScene");
+            UnityEngine.SceneManagement.SceneManager.LoadScene("SafePlaceIntroScene");
         }
     }
 }

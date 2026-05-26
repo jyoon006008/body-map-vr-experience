@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Networking;
 using System.Collections;
@@ -6,6 +6,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using TMPro;
+using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
 
 public class BodyMapAIController : MonoBehaviour
 {
@@ -36,15 +38,19 @@ public class BodyMapAIController : MonoBehaviour
 #endif
     private AudioClip micRecordClip;
     private float maxRecordTime = 20f; // max 20 seconds recording
-    private float pauseThreshold = 1.3f;
+    private float pauseThreshold = 1.8f;
     private float rmsStartThreshold = 0.015f;
     private float rmsEndThreshold = 0.008f;
     private float minimumRecordingLength = 1.0f;
-    private float postSpeechBuffer = 0.8f;
+    private float postSpeechBuffer = 1.0f;
 
     // UI elements dynamically built
     private GameObject chatPanelObj;
     private Transform chatContentTrans;
+    private TMP_InputField manualAnswerInput;
+    private Button manualAnswerButton;
+    private bool suppressManualAnswerChange;
+    private bool chatLogVisible = false;
     private StarterAssets.StarterAssetsInputs playerInputs;
 
     // State Tracking
@@ -80,6 +86,8 @@ public class BodyMapAIController : MonoBehaviour
     private bool isPotentialInterrupted = false;
     private GameObject thinkingBubbleObj;
     private Coroutine thinkingAnimationCoroutine;
+    private GameObject listeningBubbleObj;
+    private Coroutine delayedThinkingCoroutine;
     private Coroutine aiResponseCoroutine;
 
     // Dialogue State Machine
@@ -169,6 +177,7 @@ public class BodyMapAIController : MonoBehaviour
         audioSource.volume = 1f;
         audioSource.spatialBlend = 0f;
         audioSource.loop = false;
+        NormalizeEventSystems();
 
         // self-healing recovery for inspector assignments
         if (koreanFontAsset == null)
@@ -195,66 +204,56 @@ public class BodyMapAIController : MonoBehaviour
 
     private string GetLocalizedString(string key)
     {
-        bool isKorean = true;
-        if (GameManager.Instance != null)
-        {
-            isKorean = GameManager.Instance.currentLanguage == "ko";
-        }
+        bool isKorean = GameManager.Instance == null || GameManager.Instance.currentLanguage == "ko";
 
         switch (key)
         {
             case "already_prepared":
                 return isKorean ? "이 감정은 이미 준비되었습니다." : "This emotion is already prepared.";
             case "intro_system":
-                return isKorean 
+                return isKorean
                     ? "You are an empathetic Art Therapy assistant. Ask warm reflective questions about the user's artwork. Keep responses strictly under 1-2 sentences. Discuss in Korean."
                     : "You are an empathetic Art Therapy assistant. Ask warm reflective questions about the user's artwork. Keep responses strictly under 1-2 sentences. Discuss in English.";
             case "intro_msg":
                 return isKorean
-                    ? "다양한 색상과 형태를 사용하셨군요. 먼저 전체 그림이 어떤 느낌인지 설명해 주실 수 있을까요?"
+                    ? "다양한 색과 형태를 사용하셨군요. 먼저 전체 그림이 어떤 느낌인지 설명해 주실 수 있을까요?"
                     : "You have used various colors and shapes. First, could you describe what the overall picture feels like?";
             case "greeting_first":
                 return isKorean
-                    ? "선택하신 감정 영역에 대해 대화를 나눠볼까요? 이 부분은 어떤 감정에 가까운지 말씀해주세요."
+                    ? "이제 이 감정 영역에 대해 이야기해 볼까요? 이 부분은 어떤 감정에 가까운지 말해 주세요."
                     : "Shall we talk about the emotional region you selected? What kind of emotion is this part close to?";
             case "greeting_resume":
                 return isKorean
-                    ? "이전에 대화하던 감정 영역입니다. 이 부분에 대해 계속 대화해 볼까요?"
+                    ? "이전에 이야기하던 감정 영역입니다. 이 부분에 대해 계속 이야기해 볼까요?"
                     : "This is the emotional region we were talking about earlier. Shall we continue talking about this part?";
             case "thinking":
                 return isKorean ? "생각 중" : "thinking";
             case "silence_timeout":
                 return isKorean
-                    ? "이 부분은 잠시 여기 두고 다음으로 넘어가도 괜찮아요."
+                    ? "이 부분은 잠시 여기에 두고 다음으로 넘어가도 괜찮아요."
                     : "You can leave this part here for a moment and move on to the next.";
             case "low_confidence_retry":
                 return isKorean
-                    ? "제가 조금 놓친 부분이 있을 수도 있어요. 마지막 부분을 한 번만 다시 이야기해 주실 수 있을까요?"
+                    ? "제가 조금 놓친 부분이 있을 수 있어요. 마지막 부분을 한 번만 다시 이야기해 주실 수 있을까요?"
                     : "I might have missed a bit. Could you tell me that last part one more time?";
             case "low_confidence_fallback_system":
                 return isKorean
-                    ? "사용자 표현이 불완전하거나 모호해도 억지 해석하지 말고, 현재 표현을 있는 그대로 받아들이며 부드럽게 탐색을 이어가세요."
+                    ? "사용자의 표현이 불완전하거나 모호해도 억지로 해석하지 말고, 현재 표현을 있는 그대로 받아들이며 부드럽게 탐색을 이어가세요."
                     : "Even if the user's expression is incomplete or ambiguous, do not interpret it forcefully. Accept the current expression as it is and continue exploring gently.";
             case "suggest_select_region":
                 return isKorean
-                    ? "감사합니다. 이제 각 부분에 대해 하나씩 이야기해 보고 싶어요. 화면에서 이야기하고 싶은 감정 영역을 직접 선택해 주세요."
-                    : "Thank you. Now I'd like to talk about each part one by one. Please select the emotional region you'd like to talk about directly on the screen.";
+                    ? "고마워요. 이제 아직 다루지 않은 감정 영역을 하나씩 살펴볼게요."
+                    : "Thank you. Now I will guide us through the emotional regions one by one.";
             case "closing_msg":
                 return isKorean
                     ? "좋아요. 지금 이야기해 주신 것만으로도 이 감정의 모습이 꽤 선명해진 것 같아요."
                     : "Great. I think the shape of this emotion has become quite clear just from what you've shared.";
             case "earlier_collapsed":
-                return isKorean
-                    ? "이전 대화가 접혔습니다..."
-                    : "Earlier conversation collapsed...";
+                return isKorean ? "이전 대화가 접혔습니다..." : "Earlier conversation collapsed...";
             case "profile_captured_text":
-                return isKorean
-                    ? "감정 프로필이 성공적으로 캡처되었습니다."
-                    : "Emotion profile captured successfully.";
+                return isKorean ? "감정 프로필이 JSON으로 저장되었습니다." : "Emotion profile captured successfully.";
             case "chat_title":
-                return isKorean
-                    ? "💬 AI 감정 대화"
-                    : "💬 AI Emotion Chat";
+                return isKorean ? "AI 감정 대화" : "AI Emotion Chat";
             default:
                 return "";
         }
@@ -262,6 +261,7 @@ public class BodyMapAIController : MonoBehaviour
 
     void Start()
     {
+        NormalizeEventSystems();
         mapReceiver = GetComponent<BodyMapReceiver>();
         playerInputs = FindObjectOfType<StarterAssets.StarterAssetsInputs>();
 
@@ -283,13 +283,45 @@ public class BodyMapAIController : MonoBehaviour
 #endif
     }
 
+    private void NormalizeEventSystems()
+    {
+        EventSystem[] systems = FindObjectsByType<EventSystem>(FindObjectsSortMode.None);
+        if (systems == null || systems.Length <= 1) return;
+
+        EventSystem keep = EventSystem.current != null ? EventSystem.current : systems[0];
+        for (int i = 0; i < systems.Length; i++)
+        {
+            if (systems[i] == keep) continue;
+            Destroy(systems[i].gameObject);
+        }
+
+        Debug.Log($"[BodyMapAI] Removed duplicate EventSystems. Kept: {keep.name}");
+    }
+
     void Update()
     {
-        // E key: toggle HUD (works in all cursor states)
-        if (Input.GetKeyDown(KeyCode.E))
+        if (!IsBodyMappingContextActive())
         {
-            Debug.Log("[BodyMapAI] E pressed. Toggle AI HUD.");
-            ToggleAIUI();
+            return;
+        }
+
+        if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+        {
+            if (manualAnswerInput != null && manualAnswerInput.gameObject.activeInHierarchy && !string.IsNullOrWhiteSpace(manualAnswerInput.text))
+            {
+                SubmitManualAnswer();
+            }
+            else if (!chatLogVisible)
+            {
+                Debug.Log("[BodyMapAI] Enter pressed. Show chat log.");
+                ShowChatLog();
+            }
+        }
+
+        if (Input.GetKeyDown(KeyCode.Escape) && chatLogVisible)
+        {
+            Debug.Log("[BodyMapAI] Escape pressed. Hide chat log.");
+            HideChatLog();
         }
 
         // Check if region selection changed to update UI panels
@@ -312,6 +344,20 @@ public class BodyMapAIController : MonoBehaviour
             }
         }
 #endif
+    }
+
+    private bool IsBodyMappingContextActive()
+    {
+        string sceneName = SceneManager.GetActiveScene().name;
+        if (sceneName == "VRArtTherapyScene" ||
+            sceneName.Contains("Env_URP") ||
+            sceneName.Contains("Garden") ||
+            sceneName.Contains("Desert"))
+        {
+            return true;
+        }
+
+        return mapReceiver != null || FindFirstObjectByType<BodyMapReceiver>() != null;
     }
 
     void LateUpdate()
@@ -384,65 +430,37 @@ public class BodyMapAIController : MonoBehaviour
     }
 
 
-    private void ToggleAIUI()
+    private void ShowChatLog()
     {
-        isUiActive = !isUiActive;
-        Debug.Log($"[BodyMapAI] HUD active: {isUiActive}");
+        chatLogVisible = true;
+        Debug.Log($"[BodyMapAI] Chat log visible: {chatLogVisible}");
 
         if (chatPanelObj != null)
         {
-            chatPanelObj.SetActive(isUiActive);
-            Debug.Log($"[BodyMapAI] AIChatPanel active: {isUiActive}");
+            chatPanelObj.SetActive(chatLogVisible);
+            Debug.Log($"[BodyMapAI] AIChatPanel active: {chatLogVisible}");
+            if (chatLogVisible)
+            {
+                FocusManualAnswerInput();
+            }
         }
         else
         {
-            Debug.LogWarning("[BodyMapAI] chatPanelObj is null at ToggleAIUI!");
+            Debug.LogWarning("[BodyMapAI] chatPanelObj is null at ToggleChatLog!");
+        }
+    }
+
+    private void HideChatLog()
+    {
+        chatLogVisible = false;
+        if (manualAnswerInput != null)
+        {
+            manualAnswerInput.DeactivateInputField();
         }
 
-        var orb = BreathingEmotionalOrb.Instance;
-        if (orb != null)
+        if (chatPanelObj != null)
         {
-            orb.gameObject.SetActive(isUiActive);
-            Debug.Log($"[BodyMapAI] BreathingEmotionalOrb active: {isUiActive}");
-        }
-        else
-        {
-            Debug.LogWarning("[BodyMapAI] BreathingEmotionalOrb.Instance is null! Orb was not created.");
-        }
-
-        // Lock / Unlock cursor based on active state
-        if (playerInputs != null)
-        {
-            if (isUiActive)
-            {
-                playerInputs.cursorLocked = false;
-                Cursor.lockState = CursorLockMode.None;
-                Cursor.visible = true;
-            }
-            else
-            {
-                playerInputs.cursorLocked = true;
-                Cursor.lockState = CursorLockMode.Locked;
-                Cursor.visible = false;
-            }
-        }
-
-        if (isUiActive)
-        {
-            lastTimeVoiceDetected = Time.time;
-            hasDetectedVoiceInCurrentClip = false;
-            isProcessingUserAnswer = false;
-            aiAskedQuestion = false;
-            SetConversationState(ConversationState.WaitingForUser);
-        }
-        else
-        {
-            SetConversationState(ConversationState.Idle);
-            if (isRecording)
-            {
-                isRecording = false;
-                Microphone.End(null);
-            }
+            chatPanelObj.SetActive(false);
         }
     }
 
@@ -450,6 +468,7 @@ public class BodyMapAIController : MonoBehaviour
     {
         if (mapReceiver == null) return;
         if (!isUiActive) return; // Only update selection when active
+        if (reflectionState == ReflectionState.RegionReflection && lastSelectedRegion != null) return;
         if (aiAskedQuestion && conversationState != ConversationState.WaitingForUser) return;
 
         InteractiveRegion3D activeRegion = mapReceiver.selectedRegionNormal;
@@ -464,7 +483,7 @@ public class BodyMapAIController : MonoBehaviour
                      regionMemories[activeRegion.id].generationState == RegionGenerationState.ReadyForGeneration))
                 {
                     mapReceiver.selectedRegionNormal = lastSelectedRegion;
-                    mapReceiver.ShowNotice("이 감정은 이미 준비되었습니다.");
+                    mapReceiver.ShowNotice("??媛먯젙? ?대? 以鍮꾨릺?덉뒿?덈떎.");
                     return;
                 }
 
@@ -489,6 +508,7 @@ public class BodyMapAIController : MonoBehaviour
 
         if (chatPanelObj != null)
             chatPanelObj.SetActive(true);
+        chatLogVisible = true;
 
         if (BreathingEmotionalOrb.Instance != null)
         {
@@ -497,9 +517,9 @@ public class BodyMapAIController : MonoBehaviour
 
         if (playerInputs != null)
         {
-            playerInputs.cursorLocked = false;
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
+            playerInputs.cursorLocked = true;
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
         }
 
         // Initialize intro memory to track question turns
@@ -525,9 +545,10 @@ public class BodyMapAIController : MonoBehaviour
 
     private IEnumerator PlayIntroFlow(string introMsg)
     {
+        AddChatMessage("AI", introMsg, Color.white);
         AudioClip clip = null;
         yield return StartCoroutine(ProcessTTS(introMsg, (c) => clip = c));
-        yield return StartCoroutine(PlayTTSAndReturnToListening(clip, introMsg));
+        yield return StartCoroutine(PlayTTSAndReturnToListening(clip, introMsg, false));
     }
 
     private void StartRegionReflection(InteractiveRegion3D region)
@@ -550,7 +571,7 @@ public class BodyMapAIController : MonoBehaviour
 
         if (!isUiActive)
         {
-            ToggleAIUI();
+            isUiActive = true;
         }
 
         UpdateChatDisplayForRegion(region.id);
@@ -579,9 +600,10 @@ public class BodyMapAIController : MonoBehaviour
 
     private IEnumerator PlayGreetingFlow(string greeting)
     {
+        AddChatMessage("AI", greeting, Color.white);
         AudioClip clip = null;
         yield return StartCoroutine(ProcessTTS(greeting, (c) => clip = c));
-        yield return StartCoroutine(PlayTTSAndReturnToListening(clip, greeting));
+        yield return StartCoroutine(PlayTTSAndReturnToListening(clip, greeting, false));
     }
 
     private void SetConversationState(ConversationState newState)
@@ -602,39 +624,98 @@ public class BodyMapAIController : MonoBehaviour
             }
         }
 
-        // Manage thinking indicator bubble
-        if (newState == ConversationState.AIThinking || newState == ConversationState.ProcessingUserAnswer)
+        if (newState == ConversationState.WaitingForUser)
         {
-            if (thinkingBubbleObj != null)
-            {
-                Destroy(thinkingBubbleObj);
-            }
-            if (thinkingAnimationCoroutine != null)
-            {
-                StopCoroutine(thinkingAnimationCoroutine);
-            }
-            
-            thinkingBubbleObj = new GameObject("ThinkingBubble", typeof(RectTransform));
-            thinkingBubbleObj.transform.SetParent(chatContentTrans, false);
-            var textComp = thinkingBubbleObj.AddComponent<TextMeshProUGUI>();
-            textComp.fontSize = 15;
-            textComp.color = Color.gray;
-            ApplyKoreanFont(textComp);
-            
-            thinkingAnimationCoroutine = StartCoroutine(AnimateThinkingDots(textComp));
+            ShowListeningIndicator();
+            FocusManualAnswerInput();
         }
         else
         {
-            if (thinkingAnimationCoroutine != null)
-            {
-                StopCoroutine(thinkingAnimationCoroutine);
-                thinkingAnimationCoroutine = null;
-            }
-            if (thinkingBubbleObj != null)
-            {
-                Destroy(thinkingBubbleObj);
-                thinkingBubbleObj = null;
-            }
+            HideListeningIndicator();
+        }
+
+        // Manage thinking indicator bubble
+        if (newState == ConversationState.AIThinking || newState == ConversationState.ProcessingUserAnswer)
+        {
+            StartDelayedThinkingIndicator();
+        }
+        else
+        {
+            HideThinkingIndicator();
+        }
+    }
+
+    private void StartDelayedThinkingIndicator()
+    {
+        HideThinkingIndicator();
+        delayedThinkingCoroutine = StartCoroutine(ShowThinkingIndicatorAfterDelay(0.75f));
+    }
+
+    private IEnumerator ShowThinkingIndicatorAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        if (conversationState != ConversationState.AIThinking && conversationState != ConversationState.ProcessingUserAnswer)
+        {
+            yield break;
+        }
+
+        thinkingBubbleObj = new GameObject("ThinkingBubble", typeof(RectTransform));
+        thinkingBubbleObj.transform.SetParent(chatContentTrans, false);
+        var textComp = thinkingBubbleObj.AddComponent<TextMeshProUGUI>();
+        textComp.fontSize = 15;
+        textComp.color = Color.gray;
+        ApplyKoreanFont(textComp);
+
+        thinkingAnimationCoroutine = StartCoroutine(AnimateThinkingDots(textComp));
+    }
+
+    private void HideThinkingIndicator()
+    {
+        if (delayedThinkingCoroutine != null)
+        {
+            StopCoroutine(delayedThinkingCoroutine);
+            delayedThinkingCoroutine = null;
+        }
+        if (thinkingAnimationCoroutine != null)
+        {
+            StopCoroutine(thinkingAnimationCoroutine);
+            thinkingAnimationCoroutine = null;
+        }
+        if (thinkingBubbleObj != null)
+        {
+            Destroy(thinkingBubbleObj);
+            thinkingBubbleObj = null;
+        }
+    }
+
+    private void ShowListeningIndicator()
+    {
+        if (chatContentTrans == null || listeningBubbleObj != null) return;
+
+        listeningBubbleObj = new GameObject("ListeningBubble", typeof(RectTransform));
+        listeningBubbleObj.transform.SetParent(chatContentTrans, false);
+        var textComp = listeningBubbleObj.AddComponent<TextMeshProUGUI>();
+        textComp.fontSize = 15;
+        textComp.color = new Color(0.65f, 0.85f, 1f);
+        ApplyKoreanFont(textComp);
+        textComp.text = GameManager.Instance == null || GameManager.Instance.currentLanguage == "ko"
+            ? "<b>AI:</b> 듣고 있어요. 말씀해 주세요."
+            : "<b>AI:</b> Listening. Please speak.";
+
+        Canvas.ForceUpdateCanvases();
+        var scrollRect = chatPanelObj?.GetComponentInChildren<ScrollRect>();
+        if (scrollRect != null)
+        {
+            scrollRect.verticalNormalizedPosition = 0f;
+        }
+    }
+
+    private void HideListeningIndicator()
+    {
+        if (listeningBubbleObj != null)
+        {
+            Destroy(listeningBubbleObj);
+            listeningBubbleObj = null;
         }
     }
 
@@ -644,8 +725,11 @@ public class BodyMapAIController : MonoBehaviour
         while (textComp != null)
         {
             string dots = new string('.', dotCount);
-            string thinkingText = GetLocalizedString("thinking");
-            textComp.text = $"<b>AI:</b> ...{thinkingText}{dots}";
+            bool isKorean = GameManager.Instance == null || GameManager.Instance.currentLanguage == "ko";
+            string statusText = conversationState == ConversationState.ProcessingUserAnswer
+                ? (isKorean ? "말씀을 텍스트로 옮기고 있어요" : "transcribing what you said")
+                : GetLocalizedString("thinking");
+            textComp.text = $"<b>AI:</b> ...{statusText}{dots}";
             dotCount = (dotCount % 3) + 1;
             
             Canvas.ForceUpdateCanvases();
@@ -671,9 +755,12 @@ public class BodyMapAIController : MonoBehaviour
             return;
         }
 
-        bool needMic = (conversationState == ConversationState.WaitingForUser || 
-                        conversationState == ConversationState.UserSpeaking || 
-                        conversationState == ConversationState.AISpeaking);
+        bool needMic = (conversationState == ConversationState.WaitingForUser ||
+                        conversationState == ConversationState.UserSpeaking);
+        if (IsManualAnswerBeingTyped())
+        {
+            needMic = false;
+        }
 
         if (needMic && !isRecording)
         {
@@ -692,15 +779,17 @@ public class BodyMapAIController : MonoBehaviour
 
     private void StartVoiceRecording()
     {
+        if (IsManualAnswerBeingTyped()) return;
         isRecording = true;
         recordStartTime = Time.time;
+        lastTimeVoiceDetected = Time.time;
         hasDetectedVoiceInCurrentClip = false;
         voiceStartTime = -1f;
         voiceEndTime = -1f;
 
         micRecordClip = Microphone.Start(null, false, (int)maxRecordTime, 16000);
         Debug.Log("[Voice] Listening started");
-        Debug.Log("[STT] StartListening");
+        Debug.Log("[STT] MicStartedListening");
     }
 
     private void HandleVoiceRecording()
@@ -716,10 +805,11 @@ public class BodyMapAIController : MonoBehaviour
                 lastTimeVoiceDetected = Time.time;
                 if (!hasDetectedVoiceInCurrentClip)
                 {
+                    HideListeningIndicator();
                     hasDetectedVoiceInCurrentClip = true;
                     voiceStartTime = Time.time - recordStartTime;
                     SetConversationState(ConversationState.UserSpeaking);
-                    Debug.Log("[Voice] Speech detected");
+                    Debug.Log("[STT] SpeechDetected");
                 }
                 voiceEndTime = -1f;
             }
@@ -735,7 +825,7 @@ public class BodyMapAIController : MonoBehaviour
 
                     if (Time.time - lastTimeVoiceDetected > pauseThreshold) // 1.3s
                     {
-                        Debug.Log("[Voice] Speech finalized");
+                        Debug.Log("[STT] SpeechFinalized");
                         StopVoiceRecordingAndProcess();
                     }
                 }
@@ -842,7 +932,7 @@ public class BodyMapAIController : MonoBehaviour
         isRecording = false;
         int micPos = Microphone.GetPosition(null);
         Microphone.End(null);
-        Debug.Log("[STT] StopListening");
+        Debug.Log("[STT] MicStoppedListening");
 
         float recordDuration = Time.time - recordStartTime;
         float speechDuration = 0f;
@@ -854,6 +944,7 @@ public class BodyMapAIController : MonoBehaviour
 
         if (speechDuration < minimumRecordingLength || !hasDetectedVoiceInCurrentClip)
         {
+            Debug.Log("[Voice] Ignored short/no speech segment. Returning to listening.");
             SetConversationState(ConversationState.WaitingForUser);
             return;
         }
@@ -883,6 +974,7 @@ public class BodyMapAIController : MonoBehaviour
         }
 
         SetConversationState(ConversationState.ProcessingUserAnswer);
+        Debug.Log("[STT] TranscriptionStarted");
         isProcessingUserAnswer = true;
         if (BreathingEmotionalOrb.Instance != null)
         {
@@ -1163,7 +1255,7 @@ public class BodyMapAIController : MonoBehaviour
         }
     }
 
-    private IEnumerator PlayTTSAndReturnToListening(AudioClip clip, string text = "")
+    private IEnumerator PlayTTSAndReturnToListening(AudioClip clip, string text = "", bool renderText = true)
     {
         if (clip == null)
         {
@@ -1171,7 +1263,7 @@ public class BodyMapAIController : MonoBehaviour
             yield break;
         }
 
-        if (!string.IsNullOrEmpty(text))
+        if (renderText && !string.IsNullOrEmpty(text))
         {
             AddChatMessage("AI", text, Color.white);
         }
@@ -1213,6 +1305,7 @@ public class BodyMapAIController : MonoBehaviour
             userTranscript = text;
             confidence = conf;
         }));
+        Debug.Log("[STT] FullTranscriptionReceived: " + (userTranscript ?? ""));
 
         if (string.IsNullOrWhiteSpace(userTranscript))
         {
@@ -1221,6 +1314,24 @@ public class BodyMapAIController : MonoBehaviour
             yield break;
         }
 
+        yield return StartCoroutine(ProcessUserAnswerAndRespond(userTranscript, confidence, region));
+    }
+
+    private IEnumerator TextToAIRespondFlow(string userText, InteractiveRegion3D region)
+    {
+        yield return StartCoroutine(ProcessUserAnswerAndRespond(userText, 1f, region));
+    }
+
+    private IEnumerator ProcessUserAnswerAndRespond(string userTranscript, float confidence, InteractiveRegion3D region)
+    {
+        if (string.IsNullOrWhiteSpace(userTranscript))
+        {
+            isProcessingUserAnswer = false;
+            SetConversationState(ConversationState.WaitingForUser);
+            yield break;
+        }
+
+        userTranscript = userTranscript.Trim();
         AddChatMessage("User", userTranscript, new Color(0.2f, 0.6f, 1f));
 
         List<MessageData> history;
@@ -1259,10 +1370,11 @@ public class BodyMapAIController : MonoBehaviour
             {
                 string retryMsg = GetLocalizedString("low_confidence_retry");
                 history.Add(new MessageData { role = "assistant", content = retryMsg });
+                AddChatMessage("AI", retryMsg, Color.white);
 
                 AudioClip retryClip = null;
                 yield return StartCoroutine(ProcessTTS(retryMsg, (c) => retryClip = c));
-                yield return StartCoroutine(PlayTTSAndReturnToListening(retryClip, retryMsg));
+                yield return StartCoroutine(PlayTTSAndReturnToListening(retryClip, retryMsg, false));
                 isProcessingUserAnswer = false;
                 yield break;
             }
@@ -1304,6 +1416,60 @@ public class BodyMapAIController : MonoBehaviour
             yield return StartCoroutine(HandleGPTResponse(rawAiResponse, region, mem, history));
             isProcessingUserAnswer = false;
         }
+    }
+
+    private void SubmitManualAnswer()
+    {
+        if (manualAnswerInput == null) return;
+
+        string userText = manualAnswerInput.text.Trim();
+        if (string.IsNullOrEmpty(userText)) return;
+        if (isProcessingUserAnswer || conversationState == ConversationState.AIThinking || conversationState == ConversationState.AISpeaking)
+        {
+            return;
+        }
+
+        manualAnswerInput.text = "";
+        manualAnswerInput.DeactivateInputField();
+
+        if (isRecording)
+        {
+            isRecording = false;
+            Microphone.End(null);
+        }
+
+        SetConversationState(ConversationState.ProcessingUserAnswer);
+        isProcessingUserAnswer = true;
+
+        if (aiResponseCoroutine != null) StopCoroutine(aiResponseCoroutine);
+        aiResponseCoroutine = StartCoroutine(TextToAIRespondFlow(userText, lastSelectedRegion));
+    }
+
+    private bool IsManualAnswerBeingTyped()
+    {
+        if (manualAnswerInput == null || !manualAnswerInput.gameObject.activeInHierarchy) return false;
+        return !string.IsNullOrWhiteSpace(manualAnswerInput.text);
+    }
+
+    public bool IsManualTextInputActive()
+    {
+        return manualAnswerInput != null &&
+               manualAnswerInput.gameObject.activeInHierarchy &&
+               manualAnswerInput.isFocused;
+    }
+
+    private void FocusManualAnswerInput()
+    {
+        if (manualAnswerInput == null || !manualAnswerInput.gameObject.activeInHierarchy) return;
+        if (conversationState == ConversationState.AIThinking ||
+            conversationState == ConversationState.AISpeaking ||
+            conversationState == ConversationState.ProcessingUserAnswer)
+        {
+            return;
+        }
+
+        manualAnswerInput.Select();
+        manualAnswerInput.ActivateInputField();
     }
 
     private IEnumerator HandleGPTResponse(string rawAiResponse, InteractiveRegion3D region, RegionMemory mem, List<MessageData> history)
@@ -1364,19 +1530,22 @@ public class BodyMapAIController : MonoBehaviour
             if (mem != null && mem.aiQuestionCount < 3)
             {
                 history.Add(new MessageData { role = "assistant", content = cleanAiResponse });
+                AddChatMessage("AI", cleanAiResponse, Color.white);
                 AudioClip normalClip = null;
                 yield return StartCoroutine(ProcessTTS(cleanAiResponse, (c) => normalClip = c));
-                yield return StartCoroutine(PlayTTSAndReturnToListening(normalClip, cleanAiResponse));
+                yield return StartCoroutine(PlayTTSAndReturnToListening(normalClip, cleanAiResponse, false));
             }
             else
             {
                 history.Add(new MessageData { role = "assistant", content = cleanAiResponse });
+                AddChatMessage("AI", cleanAiResponse, Color.white);
                 AudioClip normalClip = null;
                 yield return StartCoroutine(ProcessTTS(cleanAiResponse, (c) => normalClip = c));
-                yield return StartCoroutine(PlayTTSAndReturnToListening(normalClip, cleanAiResponse));
+                yield return StartCoroutine(PlayTTSAndReturnToListening(normalClip, cleanAiResponse, false));
 
                 string suggestMsg = GetLocalizedString("suggest_select_region");
                 history.Add(new MessageData { role = "assistant", content = suggestMsg });
+                AddChatMessage("AI", suggestMsg, Color.white);
 
                 AudioClip suggestClip = null;
                 yield return StartCoroutine(ProcessTTS(suggestMsg, (c) => suggestClip = c));
@@ -1384,7 +1553,8 @@ public class BodyMapAIController : MonoBehaviour
                 SetConversationState(ConversationState.TransitioningStep);
                 reflectionState = ReflectionState.AwaitingSelection;
 
-                yield return StartCoroutine(PlayTTSAndReturnToListening(suggestClip, suggestMsg));
+                yield return StartCoroutine(PlayTTSAndReturnToListening(suggestClip, suggestMsg, false));
+                SelectNextIncompleteRegion();
             }
             yield break;
         }
@@ -1392,7 +1562,9 @@ public class BodyMapAIController : MonoBehaviour
         bool forceConclusion = false;
         if (useJsonMode && mem != null)
         {
-            if (shouldConclude || mem.infoGatheredCount >= 3 || mem.aiQuestionCount >= 4)
+            bool hasEnoughDialogue = mem.aiQuestionCount >= 3;
+            bool hasEnoughInformation = mem.infoGatheredCount >= 3;
+            if ((shouldConclude && hasEnoughDialogue && hasEnoughInformation) || mem.aiQuestionCount >= 5)
             {
                 forceConclusion = true;
             }
@@ -1402,10 +1574,11 @@ public class BodyMapAIController : MonoBehaviour
         {
             string closingMsg = GetLocalizedString("closing_msg");
             history.Add(new MessageData { role = "assistant", content = closingMsg });
+            AddChatMessage("AI", closingMsg, Color.white);
 
             AudioClip ttsClip = null;
             yield return StartCoroutine(ProcessTTS(closingMsg, (c) => ttsClip = c));
-            yield return StartCoroutine(PlayTTSAndReturnToListening(ttsClip, closingMsg));
+            yield return StartCoroutine(PlayTTSAndReturnToListening(ttsClip, closingMsg, false));
 
             if (string.IsNullOrEmpty(finalPrompt))
             {
@@ -1421,10 +1594,11 @@ public class BodyMapAIController : MonoBehaviour
         }
 
         history.Add(new MessageData { role = "assistant", content = cleanAiResponse });
+        AddChatMessage("AI", cleanAiResponse, Color.white);
 
         AudioClip normalClip2 = null;
         yield return StartCoroutine(ProcessTTS(cleanAiResponse, (c) => normalClip2 = c));
-        yield return StartCoroutine(PlayTTSAndReturnToListening(normalClip2, cleanAiResponse));
+        yield return StartCoroutine(PlayTTSAndReturnToListening(normalClip2, cleanAiResponse, false));
     }
 
     private void CaptureEmotionProfile(InteractiveRegion3D region, RegionMemory mem, string emotionDesc, string shapeDesc, string textureDesc, string movementDesc, string relationshipDesc, string finalPrompt)
@@ -1441,6 +1615,7 @@ public class BodyMapAIController : MonoBehaviour
         Debug.Log("[Emotion] Profile completed");
         Debug.Log($"[Emotion] Final prompt: {finalPrompt}");
         Debug.Log("[Emotion] Generation deferred");
+        ObjectificationJsonExporter.GetOrCreate().UpdateRegionFromProfile(region, mem.emotionProfile);
 
         AddChatMessage("System", GetLocalizedString("profile_captured_text"), Color.green);
 
@@ -1458,6 +1633,27 @@ public class BodyMapAIController : MonoBehaviour
         {
             mapReceiver.DeselectActiveRegion();
         }
+
+        SelectNextIncompleteRegion();
+    }
+
+    private void SelectNextIncompleteRegion()
+    {
+        if (mapReceiver == null || reflectionState != ReflectionState.AwaitingSelection) return;
+
+        var exporter = ObjectificationJsonExporter.GetOrCreate();
+        InteractiveRegion3D[] regions = FindObjectsByType<InteractiveRegion3D>(FindObjectsSortMode.None);
+        foreach (var region in regions)
+        {
+            if (region == null) continue;
+            if (exporter.IsRegionComplete(region.id)) continue;
+
+            mapReceiver.ShowRegionDetails(region);
+            StartRegionReflection(region);
+            return;
+        }
+
+        Debug.Log("[BodyMapAIController] All imported emotion regions have complete objectification records.");
     }
 
     private string CleanJsonResponse(string text)
@@ -1497,7 +1693,7 @@ public class BodyMapAIController : MonoBehaviour
         var history = new List<MessageData>();
         string sysPrompt =
             "You are a warm, empathetic Art Therapy companion helping the user explore a body sensation. " +
-            "Your role is like a gentle counselor — not an interviewer. Never ask checklist questions (like 'What is the texture?'). " +
+            "Your role is like a gentle counselor ??not an interviewer. Never ask checklist questions (like 'What is the texture?'). " +
             "Reflect back what the user shares, then ask ONE natural follow-up question that feels like genuine curiosity.\n\n" +
             "You MUST respond ONLY in JSON format matching the following schema:\n" +
             "{\n" +
@@ -1640,7 +1836,7 @@ public class BodyMapAIController : MonoBehaviour
         panelRect.anchorMax = new Vector2(1f, 0f);
         panelRect.pivot     = new Vector2(1f, 0f);
         panelRect.anchoredPosition = new Vector2(-32f, 32f);
-        panelRect.sizeDelta = new Vector2(420f, 340f);
+        panelRect.sizeDelta = new Vector2(480f, 390f);
 
         // Background: dark panel, alpha 0.65
         var panelImg = chatPanelObj.AddComponent<Image>();
@@ -1673,7 +1869,7 @@ public class BodyMapAIController : MonoBehaviour
         var scrollRectTransform = scrollGO.GetComponent<RectTransform>();
         scrollRectTransform.anchorMin  = Vector2.zero;
         scrollRectTransform.anchorMax  = Vector2.one;
-        scrollRectTransform.offsetMin  = new Vector2(8f, 8f);
+        scrollRectTransform.offsetMin  = new Vector2(8f, 96f);
         scrollRectTransform.offsetMax  = new Vector2(-8f, -36f);
 
         // Viewport with mask
@@ -1717,7 +1913,85 @@ public class BodyMapAIController : MonoBehaviour
 
         chatContentTrans = contentRect;
 
-        // Start hidden — toggled by E key
+        GameObject inputGO = new GameObject("ManualAnswerInput", typeof(RectTransform), typeof(Image), typeof(TMP_InputField));
+        inputGO.transform.SetParent(chatPanelObj.transform, false);
+        var inputRect = inputGO.GetComponent<RectTransform>();
+        inputRect.anchorMin = new Vector2(0f, 0f);
+        inputRect.anchorMax = new Vector2(1f, 0f);
+        inputRect.pivot = new Vector2(0.5f, 0f);
+        inputRect.offsetMin = new Vector2(12f, 12f);
+        inputRect.offsetMax = new Vector2(-112f, 84f);
+
+        var inputImage = inputGO.GetComponent<Image>();
+        inputImage.color = new Color(1f, 1f, 1f, 0.94f);
+
+        manualAnswerInput = inputGO.GetComponent<TMP_InputField>();
+        manualAnswerInput.lineType = TMP_InputField.LineType.MultiLineSubmit;
+        manualAnswerInput.textViewport = inputRect;
+
+        GameObject textGO = new GameObject("Text", typeof(RectTransform));
+        textGO.transform.SetParent(inputGO.transform, false);
+        var textRect = textGO.GetComponent<RectTransform>();
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = new Vector2(10f, 4f);
+        textRect.offsetMax = new Vector2(-10f, -4f);
+        var inputText = textGO.AddComponent<TextMeshProUGUI>();
+        inputText.fontSize = 16;
+        inputText.color = Color.black;
+        inputText.textWrappingMode = TextWrappingModes.Normal;
+        inputText.alignment = TextAlignmentOptions.TopLeft;
+        ApplyKoreanFont(inputText);
+
+        GameObject placeholderGO = new GameObject("Placeholder", typeof(RectTransform));
+        placeholderGO.transform.SetParent(inputGO.transform, false);
+        var placeholderRect = placeholderGO.GetComponent<RectTransform>();
+        placeholderRect.anchorMin = Vector2.zero;
+        placeholderRect.anchorMax = Vector2.one;
+        placeholderRect.offsetMin = new Vector2(10f, 4f);
+        placeholderRect.offsetMax = new Vector2(-10f, -4f);
+        var placeholderText = placeholderGO.AddComponent<TextMeshProUGUI>();
+        bool isKorean = GameManager.Instance == null || GameManager.Instance.currentLanguage == "ko";
+        placeholderText.text = isKorean ? "직접 입력..." : "Type your answer...";
+        placeholderText.fontSize = 16;
+        placeholderText.color = new Color(0.45f, 0.45f, 0.45f, 0.75f);
+        placeholderText.alignment = TextAlignmentOptions.TopLeft;
+        ApplyKoreanFont(placeholderText);
+
+        manualAnswerInput.textComponent = inputText;
+        manualAnswerInput.placeholder = placeholderText;
+        manualAnswerInput.onSubmit.AddListener(_ => SubmitManualAnswer());
+        manualAnswerInput.onValueChanged.AddListener(OnManualAnswerInputChanged);
+
+        GameObject sendGO = new GameObject("ManualAnswerSend", typeof(RectTransform), typeof(Image), typeof(Button));
+        sendGO.transform.SetParent(chatPanelObj.transform, false);
+        var sendRect = sendGO.GetComponent<RectTransform>();
+        sendRect.anchorMin = new Vector2(1f, 0f);
+        sendRect.anchorMax = new Vector2(1f, 0f);
+        sendRect.pivot = new Vector2(1f, 0f);
+        sendRect.anchoredPosition = new Vector2(-12f, 12f);
+        sendRect.sizeDelta = new Vector2(92f, 72f);
+
+        var sendImage = sendGO.GetComponent<Image>();
+        sendImage.color = new Color(0.05f, 0.68f, 0.78f, 1f);
+        manualAnswerButton = sendGO.GetComponent<Button>();
+        manualAnswerButton.onClick.AddListener(SubmitManualAnswer);
+
+        GameObject sendTextGO = new GameObject("Text", typeof(RectTransform));
+        sendTextGO.transform.SetParent(sendGO.transform, false);
+        var sendTextRect = sendTextGO.GetComponent<RectTransform>();
+        sendTextRect.anchorMin = Vector2.zero;
+        sendTextRect.anchorMax = Vector2.one;
+        sendTextRect.offsetMin = Vector2.zero;
+        sendTextRect.offsetMax = Vector2.zero;
+        var sendText = sendTextGO.AddComponent<TextMeshProUGUI>();
+        sendText.text = isKorean ? "전달" : "Send";
+        sendText.fontSize = 16;
+        sendText.color = Color.white;
+        sendText.alignment = TextAlignmentOptions.Center;
+        ApplyKoreanFont(sendText);
+
+        // Start hidden, toggled by Enter key.
         chatPanelObj.SetActive(false);
         Debug.Log("[BodyMapAI] CreateChatUI complete. Panel size: 420x340, alpha: 0.65");
     }
@@ -1768,7 +2042,8 @@ public class BodyMapAIController : MonoBehaviour
             scrollRect.verticalNormalizedPosition = 0f;
         }
 
-        Debug.Log($"[BodyMapAI] Chat message rendered [{sender}]: {message.Substring(0, Mathf.Min(40, message.Length))}");
+        string preview = string.IsNullOrEmpty(message) ? "" : message.Substring(0, Mathf.Min(40, message.Length));
+        Debug.Log($"[BodyMapAI] Chat message rendered [{sender}]: {preview}");
     }
 
     private void LoadAPIKeys()
@@ -1908,7 +2183,7 @@ public class BodyMapAIController : MonoBehaviour
         TMP_FontAsset loaded = Resources.Load<TMP_FontAsset>("Fonts/NotoSansKR");
         if (loaded != null)
         {
-            // CRITICAL: Validate atlas — Dynamic assets saved incorrectly have null atlasTextures
+            // CRITICAL: Validate atlas ??Dynamic assets saved incorrectly have null atlasTextures
             bool atlasOk = (loaded.atlasTextures != null);
             bool materialOk = (loaded.material != null);
 
@@ -1922,14 +2197,14 @@ public class BodyMapAIController : MonoBehaviour
             {
                 Debug.LogWarning("[Font] NotoSansKR.asset is broken. " +
                                  "atlas=" + atlasOk + " material=" + materialOk +
-                                 " → Falling through to OS fallback.");
-                // Do NOT use this broken asset — fall through
+                                 " ??Falling through to OS fallback.");
+                // Do NOT use this broken asset ??fall through
             }
         }
 
         // 3rd priority: OS Dynamic font fallback
         Debug.LogWarning("[Font] TMP_FontAsset not found in Resources. Trying OS dynamic font fallback...");
-        string[] osFontNames = { "Malgun Gothic", "맑은 고딕", "NanumGothic", "Dotum", "Gulim", "Arial Unicode MS", "Arial" };
+        string[] osFontNames = { "Malgun Gothic", "留묒? 怨좊뵓", "NanumGothic", "Dotum", "Gulim", "Arial Unicode MS", "Arial" };
         Font font = null;
         for (int i = 0; i < osFontNames.Length; i++)
         {
@@ -2080,3 +2355,4 @@ public enum EmotionInteractionState
     Hold,
     Place
 }
+
