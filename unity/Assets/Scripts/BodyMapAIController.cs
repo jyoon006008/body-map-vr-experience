@@ -1402,6 +1402,15 @@ public class BodyMapAIController : MonoBehaviour
                     content = GetLocalizedString("low_confidence_fallback_system")
                 });
 
+                bool isFinalIntroTurn = (reflectionState == ReflectionState.InitialIntro && mem != null && mem.aiQuestionCount >= 3);
+                if (isFinalIntroTurn)
+                {
+                    tempHistory.Add(new MessageData {
+                        role = "system",
+                        content = "This is the final turn of the introduction. Do NOT ask any follow-up questions. Warmly empathize with the user's answers and summarize the discussion so far in 1-2 sentences. Keep it in Korean."
+                    });
+                }
+
                 string rawAiResponse = null;
                 yield return StartCoroutine(ProcessGPT(tempHistory, (region != null && reflectionState == ReflectionState.RegionReflection), (resp) => rawAiResponse = resp));
 
@@ -1419,8 +1428,22 @@ public class BodyMapAIController : MonoBehaviour
         }
 
         {
+            bool isFinalIntroTurn = (reflectionState == ReflectionState.InitialIntro && mem != null && mem.aiQuestionCount >= 3);
+            if (isFinalIntroTurn)
+            {
+                history.Add(new MessageData {
+                    role = "system",
+                    content = "This is the final turn of the introduction. Do NOT ask any follow-up questions. Warmly empathize with the user's answers and summarize the discussion so far in 1-2 sentences. Keep it in Korean."
+                });
+            }
+
             string rawAiResponse = null;
             yield return StartCoroutine(ProcessGPT(history, (region != null && reflectionState == ReflectionState.RegionReflection), (resp) => rawAiResponse = resp));
+
+            if (isFinalIntroTurn)
+            {
+                history.RemoveAt(history.Count - 1);
+            }
 
             if (string.IsNullOrEmpty(rawAiResponse))
             {
