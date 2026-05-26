@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Networking;
 using System.Collections;
@@ -1443,6 +1443,33 @@ public class BodyMapAIController : MonoBehaviour
 
         if (aiResponseCoroutine != null) StopCoroutine(aiResponseCoroutine);
         aiResponseCoroutine = StartCoroutine(TextToAIRespondFlow(userText, lastSelectedRegion));
+    }
+
+    private void OnManualAnswerInputChanged(string value)
+    {
+        if (suppressManualAnswerChange) return;
+
+        if (value.Contains("\n") || value.Contains("\r"))
+        {
+            string cleaned = value.Replace("\r", "").Replace("\n", "");
+            suppressManualAnswerChange = true;
+            manualAnswerInput.text = cleaned;
+            manualAnswerInput.caretPosition = manualAnswerInput.text.Length;
+            manualAnswerInput.ForceLabelUpdate();
+            suppressManualAnswerChange = false;
+            SubmitManualAnswer();
+            return;
+        }
+
+        if (!isRecording) return;
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        Debug.Log("[BodyMapAI] Manual typing detected. Voice recording stopped.");
+        isRecording = false;
+        if (Microphone.IsRecording(null))
+        {
+            Microphone.End(null);
+        }
     }
 
     private bool IsManualAnswerBeingTyped()
