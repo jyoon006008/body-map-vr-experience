@@ -487,12 +487,12 @@ public class BodyMapAIController : MonoBehaviour
                     return;
                 }
 
-                lastSelectedRegion = activeRegion;
+                SetLastSelectedRegion(activeRegion);
                 StartRegionReflection(activeRegion);
             }
             else
             {
-                lastSelectedRegion = null;
+                SetLastSelectedRegion(null);
             }
         }
     }
@@ -551,10 +551,25 @@ public class BodyMapAIController : MonoBehaviour
         yield return StartCoroutine(PlayTTSAndReturnToListening(clip, introMsg, false));
     }
 
+    private void SetLastSelectedRegion(InteractiveRegion3D region)
+    {
+        if (lastSelectedRegion != null && lastSelectedRegion != region)
+        {
+            lastSelectedRegion.SetAiSphereIndicatorActive(false);
+        }
+
+        lastSelectedRegion = region;
+
+        if (lastSelectedRegion != null)
+        {
+            lastSelectedRegion.SetAiSphereIndicatorActive(true);
+        }
+    }
+
     private void StartRegionReflection(InteractiveRegion3D region)
     {
         reflectionState = ReflectionState.RegionReflection;
-        lastSelectedRegion = region;
+        SetLastSelectedRegion(region);
         isProcessingUserAnswer = false;
 
         if (!regionMemories.ContainsKey(region.id))
@@ -1036,7 +1051,7 @@ public class BodyMapAIController : MonoBehaviour
             aiResponseCoroutine = StartCoroutine(PlayGreetingFlow(msg));
 
             reflectionState = ReflectionState.AwaitingSelection;
-            lastSelectedRegion = null;
+            SetLastSelectedRegion(null);
             if (mapReceiver != null) mapReceiver.DeselectActiveRegion();
         }
     }
@@ -1655,7 +1670,7 @@ public class BodyMapAIController : MonoBehaviour
         reflectionState = ReflectionState.AwaitingSelection;
         if (lastSelectedRegion == region)
         {
-            lastSelectedRegion = null;
+            SetLastSelectedRegion(null);
         }
         if (mapReceiver != null)
         {

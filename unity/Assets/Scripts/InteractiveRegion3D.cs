@@ -589,4 +589,94 @@ public class InteractiveRegion3D : MonoBehaviour
             mat.renderQueue = -1;
         }
     }
+
+    [Header("AI Sphere Indicator")]
+    private GameObject aiSphereIndicatorObj;
+    private Material aiSphereIndicatorMat;
+    private Coroutine aiSpherePulseCoroutine;
+
+    public void SetAiSphereIndicatorActive(bool active)
+    {
+        if (active)
+        {
+            if (aiSphereIndicatorObj != null) return;
+
+            // 1. Create primitive sphere
+            aiSphereIndicatorObj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            aiSphereIndicatorObj.name = "AI_Sphere_Indicator";
+            aiSphereIndicatorObj.transform.SetParent(transform, false);
+            
+            // Position slightly in front of the sprite along Z axis
+            aiSphereIndicatorObj.transform.localPosition = new Vector3(0f, 0f, -0.15f);
+            aiSphereIndicatorObj.transform.localScale = Vector3.one * 0.35f;
+
+            // Remove Collider so it doesn't block raycasts or physics
+            var col = aiSphereIndicatorObj.GetComponent<Collider>();
+            if (col != null) Destroy(col);
+
+            // 2. Set Material with URP Lit and Emission
+            var renderer = aiSphereIndicatorObj.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                Shader urpShader = Shader.Find("Universal Render Pipeline/Lit");
+                if (urpShader == null) urpShader = Shader.Find("Standard");
+
+                aiSphereIndicatorMat = new Material(urpShader);
+                
+                // Configure transparent rendering mode
+                aiSphereIndicatorMat.SetFloat("_Surface", 1f);
+                aiSphereIndicatorMat.SetFloat("_Blend", 0f);
+                aiSphereIndicatorMat.SetOverrideTag("RenderType", "Transparent");
+                aiSphereIndicatorMat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+                aiSphereIndicatorMat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                aiSphereIndicatorMat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                aiSphereIndicatorMat.SetInt("_ZWrite", 0);
+                aiSphereIndicatorMat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+
+                // Glowing cyan color to match the companion orb style
+                Color baseColor = new Color(0.18f, 0.85f, 1f, 0.65f);
+                aiSphereIndicatorMat.SetColor("_BaseColor", baseColor);
+                aiSphereIndicatorMat.SetColor("_Color", baseColor);
+                aiSphereIndicatorMat.SetColor("_EmissionColor", new Color(0.18f, 0.85f, 1f, 1.5f));
+                aiSphereIndicatorMat.EnableKeyword("_EMISSION");
+
+                renderer.material = aiSphereIndicatorMat;
+            }
+
+            // 3. Start pulsing animation
+            if (aiSpherePulseCoroutine != null) StopCoroutine(aiSpherePulseCoroutine);
+            aiSpherePulseCoroutine = StartCoroutine(AiSpherePulseSequence());
+        }
+        else
+        {
+            if (aiSpherePulseCoroutine != null)
+            {
+                StopCoroutine(aiSpherePulseCoroutine);
+                aiSpherePulseCoroutine = null;
+            }
+            if (aiSphereIndicatorObj != null)
+            {
+                Destroy(aiSphereIndicatorObj);
+                aiSphereIndicatorObj = null;
+            }
+            if (aiSphereIndicatorMat != null)
+            {
+                Destroy(aiSphereIndicatorMat);
+                aiSphereIndicatorMat = null;
+            }
+        }
+    }
+
+    private IEnumerator AiSpherePulseSequence()
+    {
+        float speed = 2.2f;
+        Vector3 baseScale = Vector3.one * 0.35f;
+        while (aiSphereIndicatorObj != null)
+        {
+            float pulse = (Mathf.Sin(Time.time * speed) + 1f) * 0.5f;
+            float scaleFactor = Mathf.Lerp(0.85f, 1.15f, pulse);
+            aiSphereIndicatorObj.transform.localScale = baseScale * scaleFactor;
+            yield return null;
+        }
+    }
 }
