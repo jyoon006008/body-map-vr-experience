@@ -1402,7 +1402,7 @@ public class BodyMapAIController : MonoBehaviour
                     content = GetLocalizedString("low_confidence_fallback_system")
                 });
 
-                bool isFinalIntroTurn = (reflectionState == ReflectionState.InitialIntro && mem != null && mem.aiQuestionCount >= 3);
+                bool isFinalIntroTurn = (reflectionState == ReflectionState.InitialIntro && mem != null && mem.aiQuestionCount >= 2);
                 if (isFinalIntroTurn)
                 {
                     tempHistory.Add(new MessageData {
@@ -1428,7 +1428,7 @@ public class BodyMapAIController : MonoBehaviour
         }
 
         {
-            bool isFinalIntroTurn = (reflectionState == ReflectionState.InitialIntro && mem != null && mem.aiQuestionCount >= 3);
+            bool isFinalIntroTurn = (reflectionState == ReflectionState.InitialIntro && mem != null && mem.aiQuestionCount >= 2);
             if (isFinalIntroTurn)
             {
                 history.Add(new MessageData {
@@ -1593,7 +1593,7 @@ public class BodyMapAIController : MonoBehaviour
 
         if (reflectionState == ReflectionState.InitialIntro)
         {
-            if (mem != null && mem.aiQuestionCount < 4)
+            if (mem != null && mem.aiQuestionCount < 3)
             {
                 history.Add(new MessageData { role = "assistant", content = cleanAiResponse });
                 AddChatMessage("AI", cleanAiResponse, Color.white);
