@@ -61,7 +61,10 @@ public class PromptToPython : MonoBehaviour
         SetPromptUI(false);
 
         if (loadingText != null)
+        {
+            BodyMapAIController.ApplyKoreanFont(loadingText);
             loadingText.gameObject.SetActive(false);
+        }
 
         if (imageOptionPanel != null)
             imageOptionPanel.SetActive(false);

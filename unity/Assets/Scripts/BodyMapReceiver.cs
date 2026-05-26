@@ -107,18 +107,72 @@ public class BodyMapReceiver : MonoBehaviour
         if (playerInputs != null)
         {
             playerInputs.cursorLocked = false;
+            playerInputs.cursorInputForLook = false;
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
+            playerInputs.SetInputsEnabled(false);
         }
+
+        if (statusText != null) BodyMapAIController.ApplyKoreanFont(statusText);
+        if (detailText != null) BodyMapAIController.ApplyKoreanFont(detailText);
+        if (noticeText != null) BodyMapAIController.ApplyKoreanFont(noticeText);
 
         if (statusText != null)
         {
             statusText.text = "body mapping analysis: waiting for scan";
         }
 
+        // Disable bottom-right status panel UI objects
+        string[] namesToDisable = { "ScanStatus", "AnalysisStatus", "StatusPanel" };
+        foreach (string name in namesToDisable)
+        {
+            GameObject obj = GameObject.Find(name);
+            if (obj != null)
+            {
+                obj.SetActive(false);
+            }
+        }
+        Debug.Log("[UI Cleanup] Bottom-right status panel disabled.");
+
+        // Localize instruction panel text & button
+        bool isKorean = true;
+        if (GameManager.Instance != null)
+        {
+            isKorean = GameManager.Instance.currentLanguage == "ko";
+        }
+
         if (instructionPanel != null)
         {
             instructionPanel.SetActive(true);
+
+            var textComp = instructionPanel.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+            if (textComp != null)
+            {
+                textComp.text = isKorean ? "바디 맵 스캔 이미지를 업로드해 주세요" : "Please upload the scan of your body map";
+                if (isKorean) BodyMapAIController.ApplyKoreanFont(textComp);
+            }
+
+            var btn = instructionPanel.GetComponentInChildren<UnityEngine.UI.Button>();
+            if (btn != null)
+            {
+                var btnText = btn.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+                if (btnText != null)
+                {
+                    btnText.text = isKorean ? "바디 맵 업로더 열기" : "Open Body Map Uploader";
+                    if (isKorean) BodyMapAIController.ApplyKoreanFont(btnText);
+                }
+
+                // Add dynamic listener only if not already bound in Editor
+                if (btn.onClick.GetPersistentEventCount() == 0)
+                {
+                    OpenURLHelper urlHelper = FindAnyObjectByType<OpenURLHelper>();
+                    if (urlHelper != null)
+                    {
+                        btn.onClick.AddListener(urlHelper.OpenWebClient);
+                        Debug.Log("[BodyMapReceiver] Dynamically bound OpenWebClient to button click listener.");
+                    }
+                }
+            }
         }
 
         if (noticePanel != null)
@@ -149,7 +203,16 @@ public class BodyMapReceiver : MonoBehaviour
         CreateEditModeUI();
         CreateAimDotUI();
         gameObject.AddComponent<BodyMapAIController>();
-        StartServer();
+
+        Debug.Log("[BodyMapReceiver] Calling StartServer()...");
+        try
+        {
+            StartServer();
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError("[BodyMapReceiver] StartServer() threw an exception: " + ex.Message);
+        }
     }
 
     void OnDestroy()
@@ -240,6 +303,7 @@ public class BodyMapReceiver : MonoBehaviour
         var textGO = new GameObject("EditModeText");
         textGO.transform.SetParent(editModePanel.transform, false);
         editModeText = textGO.AddComponent<TMPro.TextMeshProUGUI>();
+        BodyMapAIController.ApplyKoreanFont(editModeText);
         editModeText.fontSize = 14;
         editModeText.color = Color.white;
         editModeText.alignment = TMPro.TextAlignmentOptions.Center;
@@ -435,6 +499,63 @@ public class BodyMapReceiver : MonoBehaviour
     {
         if (!Application.isPlaying) return;
 
+        // Try to get playerInputs dynamically if it is null
+        if (playerInputs == null)
+        {
+            playerInputs = FindFirstObjectByType<StarterAssets.StarterAssetsInputs>();
+        }
+
+        // --- Handle Player Lock & Cursor Enforcing ---
+        if (playerInputs != null)
+        {
+            bool isWaitingForScan = (instructionPanel != null && instructionPanel.activeSelf);
+            if (isWaitingForScan)
+            {
+                playerInputs.cursorLocked = false;
+                playerInputs.cursorInputForLook = false;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+                playerInputs.SetInputsEnabled(false);
+            }
+            else
+            {
+                // Scan is imported - always enable WASD movement
+                playerInputs.SetInputsEnabled(true);
+
+                // Check if user is holding Right Mouse Button to look around
+                bool isHoldingRightClick = Input.GetMouseButton(1);
+
+                if (isHoldingRightClick)
+                {
+                    playerInputs.cursorInputForLook = true;
+                    playerInputs.cursorLocked = true;
+                    Cursor.lockState = CursorLockMode.Locked;
+                    Cursor.visible = false;
+                }
+                else if (editMode)
+                {
+                    playerInputs.cursorInputForLook = false;
+                    playerInputs.cursorLocked = false;
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                }
+                else if (BodyMapAIController.Instance != null && BodyMapAIController.Instance.IsUIActive())
+                {
+                    playerInputs.cursorInputForLook = false;
+                    playerInputs.cursorLocked = false;
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                }
+                else
+                {
+                    playerInputs.cursorInputForLook = true;
+                    playerInputs.cursorLocked = true;
+                    Cursor.lockState = CursorLockMode.Locked;
+                    Cursor.visible = false;
+                }
+            }
+        }
+
         UploadRequest reqToProcess = new UploadRequest();
         bool hasRequest = false;
 
@@ -470,7 +591,11 @@ public class BodyMapReceiver : MonoBehaviour
         }
         else
         {
-            HandleRaycasting();
+            bool isWaitingForScan = (instructionPanel != null && instructionPanel.activeSelf);
+            if (!isWaitingForScan)
+            {
+                HandleRaycasting();
+            }
         }
     }
 
@@ -692,6 +817,7 @@ public class BodyMapReceiver : MonoBehaviour
         primary.pixelCount = totalPixels;
         primary.colorName = mergedColors;
         primary.SetSelected(false);
+        primary.UpdateHoverText();
 
         selectedRegions.Clear();
         UpdateEditModeStatus();
@@ -810,8 +936,8 @@ public class BodyMapReceiver : MonoBehaviour
             }
         }
 
-        // Select on left click or press 'E'
-        if (currentlyHoveredRegion != null && (Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.E)))
+        // Select on left click
+        if (currentlyHoveredRegion != null && Input.GetMouseButtonDown(0))
         {
             currentlyHoveredRegion.OnSelect();
         }
@@ -862,8 +988,55 @@ public class BodyMapReceiver : MonoBehaviour
             float spriteWidth = texture.width / pixelsPerUnit;
             float spriteHeight = texture.height / pixelsPerUnit;
 
-            // Position the avatar sprite so its bottom sits exactly on the floor plane (y = -1.8f)
-            avatarSpriteRenderer.transform.position = new Vector3(0f, -1.8f + (spriteHeight / 2f), 0f);
+            // Determine position and rotation based on the selected environment scene
+            string selectedEnv = "";
+            if (GameManager.Instance != null)
+            {
+                selectedEnv = GameManager.Instance.GetSelectedEnvironmentSceneName();
+            }
+
+            if (string.IsNullOrEmpty(selectedEnv))
+            {
+                selectedEnv = "Env_URP_Garden"; // Default fallback
+            }
+
+            Vector3 targetPos = new Vector3(0f, -1.8f + (spriteHeight / 2f), 0f);
+            Quaternion targetRot = Quaternion.identity;
+            Vector3 targetScale = Vector3.one;
+
+            if (selectedEnv.Contains("Desert") || selectedEnv.Contains("Oasis"))
+            {
+                targetPos = new Vector3(-2.972901f, 2.53783f, -90.14832f);
+                targetRot = Quaternion.Euler(0f, -0.061f, 0f); // Rotated 180 degrees to face player (from 179.939)
+            }
+            else // Garden or other envs
+            {
+                targetPos = new Vector3(-20.01062f, 0.2199998f, 76.50635f);
+                targetRot = Quaternion.Euler(0f, -88.795f, 0f); // Rotated 180 degrees to face player (from 91.205)
+            }
+
+            // Dynamically adjust Y so that the bottom of the sprite sits exactly on the ground
+            // Start the raycast slightly above targetPos.y to stay below potential ceilings but above the ground
+            Vector3 rayStart = new Vector3(targetPos.x, targetPos.y + 0.5f, targetPos.z);
+            RaycastHit hit;
+            float defaultGroundY = targetPos.y - (spriteHeight / 2f);
+            float groundY = defaultGroundY;
+
+            if (Physics.Raycast(rayStart, Vector3.down, out hit, 5f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            {
+                groundY = hit.point.y;
+                Debug.Log($"[BodyMapReceiver] Raycast dynamically adjusted ground Y to: {groundY} (hit: {hit.collider.gameObject.name})");
+            }
+            else
+            {
+                Debug.LogWarning($"[BodyMapReceiver] Raycast did not hit ground. Falling back to default ground Y: {defaultGroundY}");
+            }
+
+            targetPos.y = groundY + (spriteHeight / 2f);
+
+            avatarSpriteRenderer.transform.position = targetPos;
+            avatarSpriteRenderer.transform.rotation = targetRot;
+            avatarSpriteRenderer.transform.localScale = targetScale;
 
             // 4. Instantiate floating sprite regions
             if (payload.regions != null)
@@ -949,6 +1122,7 @@ public class BodyMapReceiver : MonoBehaviour
                     ir3d.emotionLabel = region.emotion_label;
                     ir3d.description = region.description;
                     ir3d.pixelCount = region.pixel_count;
+                    ir3d.UpdateHoverText();
 
                     instantiatedShapes.Add(marker);
                 }
@@ -973,6 +1147,12 @@ public class BodyMapReceiver : MonoBehaviour
             }
 
             ShowNotice("imported new body map scan successfully");
+
+            Debug.Log("[BodyMapReceiver] Import completed. Invoking OnImportCompleted.");
+            if (BodyMapAIController.Instance != null)
+            {
+                BodyMapAIController.Instance.OnImportCompleted();
+            }
         }
         catch (Exception ex)
         {

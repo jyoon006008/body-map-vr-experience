@@ -107,87 +107,6 @@ public class SceneBuilder
         canvasObj.AddComponent<CanvasScaler>();
         canvasObj.AddComponent<GraphicRaycaster>();
 
-        // --- DetailPanel (Bottom-Left) ---
-        GameObject detailPanelObj = new GameObject("DetailPanel");
-        detailPanelObj.transform.SetParent(canvasObj.transform, false);
-        Image detailPanelImage = detailPanelObj.AddComponent<Image>();
-        detailPanelImage.color = new Color(0.08f, 0.08f, 0.1f, 0.85f);
-        
-        RectTransform detailPanelRect = detailPanelObj.GetComponent<RectTransform>();
-        detailPanelRect.anchorMin = new Vector2(0f, 0f);
-        detailPanelRect.anchorMax = new Vector2(0f, 0f);
-        detailPanelRect.pivot = new Vector2(0f, 0f);
-        detailPanelRect.anchoredPosition = new Vector2(30f, 30f);
-        detailPanelRect.sizeDelta = new Vector2(450f, 180f);
-
-        GameObject detailTextObj = new GameObject("DetailText");
-        detailTextObj.transform.SetParent(detailPanelObj.transform, false);
-        TextMeshProUGUI detailTmpText = detailTextObj.AddComponent<TextMeshProUGUI>();
-        detailTmpText.fontSize = 18;
-        detailTmpText.color = Color.white;
-        detailTmpText.alignment = TextAlignmentOptions.TopLeft;
-        detailTmpText.text = "Select a region to see details";
-
-        RectTransform detailTextRect = detailTextObj.GetComponent<RectTransform>();
-        detailTextRect.anchorMin = new Vector2(0f, 0f);
-        detailTextRect.anchorMax = new Vector2(1f, 1f);
-        detailTextRect.offsetMin = new Vector2(15f, 15f);
-        detailTextRect.offsetMax = new Vector2(-15f, -15f);
-
-        // --- StatusPanel (Bottom-Right) ---
-        GameObject statusPanelObj = new GameObject("StatusPanel");
-        statusPanelObj.transform.SetParent(canvasObj.transform, false);
-        Image statusPanelImage = statusPanelObj.AddComponent<Image>();
-        statusPanelImage.color = new Color(0.08f, 0.08f, 0.1f, 0.85f);
-
-        RectTransform statusPanelRect = statusPanelObj.GetComponent<RectTransform>();
-        statusPanelRect.anchorMin = new Vector2(1f, 0f);
-        statusPanelRect.anchorMax = new Vector2(1f, 0f);
-        statusPanelRect.pivot = new Vector2(1f, 0f);
-        statusPanelRect.anchoredPosition = new Vector2(-30f, 30f);
-        statusPanelRect.sizeDelta = new Vector2(350f, 60f);
-
-        GameObject statusTextObj = new GameObject("StatusText");
-        statusTextObj.transform.SetParent(statusPanelObj.transform, false);
-        TextMeshProUGUI statusTmpText = statusTextObj.AddComponent<TextMeshProUGUI>();
-        statusTmpText.fontSize = 16;
-        statusTmpText.color = Color.white;
-        statusTmpText.alignment = TextAlignmentOptions.Center;
-        statusTmpText.text = "body mapping analysis: waiting for scan";
-
-        RectTransform statusTextRect = statusTextObj.GetComponent<RectTransform>();
-        statusTextRect.anchorMin = new Vector2(0f, 0f);
-        statusTextRect.anchorMax = new Vector2(1f, 1f);
-        statusTextRect.offsetMin = new Vector2(10f, 10f);
-        statusTextRect.offsetMax = new Vector2(-10f, -10f);
-
-        // --- NoticePanel (Bottom-Right, above status) ---
-        GameObject noticePanelObj = new GameObject("NoticePanel");
-        noticePanelObj.transform.SetParent(canvasObj.transform, false);
-        Image noticePanelImage = noticePanelObj.AddComponent<Image>();
-        noticePanelImage.color = new Color(0.1f, 0.4f, 0.1f, 0.85f); // Translucent green
-
-        RectTransform noticePanelRect = noticePanelObj.GetComponent<RectTransform>();
-        noticePanelRect.anchorMin = new Vector2(1f, 0f);
-        noticePanelRect.anchorMax = new Vector2(1f, 0f);
-        noticePanelRect.pivot = new Vector2(1f, 0f);
-        noticePanelRect.anchoredPosition = new Vector2(-30f, 105f); // Directly above StatusPanel
-        noticePanelRect.sizeDelta = new Vector2(350f, 60f);
-
-        GameObject noticeTextObj = new GameObject("NoticeText");
-        noticeTextObj.transform.SetParent(noticePanelObj.transform, false);
-        TextMeshProUGUI noticeTmpText = noticeTextObj.AddComponent<TextMeshProUGUI>();
-        noticeTmpText.fontSize = 16;
-        noticeTmpText.color = Color.white;
-        noticeTmpText.alignment = TextAlignmentOptions.Center;
-        noticeTmpText.text = "imported new body map scan successfully";
-
-        RectTransform noticeTextRect = noticeTextObj.GetComponent<RectTransform>();
-        noticeTextRect.anchorMin = new Vector2(0f, 0f);
-        noticeTextRect.anchorMax = new Vector2(1f, 1f);
-        noticeTextRect.offsetMin = new Vector2(10f, 10f);
-        noticeTextRect.offsetMax = new Vector2(-10f, -10f);
-
         // --- InstructionPanel (Center Card) ---
         GameObject instructionPanelObj = new GameObject("InstructionPanel");
         instructionPanelObj.transform.SetParent(canvasObj.transform, false);
@@ -208,6 +127,7 @@ public class SceneBuilder
         instructionTmpText.color = Color.white;
         instructionTmpText.alignment = TextAlignmentOptions.Center;
         instructionTmpText.text = "Please upload the scan of your body map";
+        ApplyFont(instructionTmpText);
 
         RectTransform instructionTextRect = instructionTextObj.GetComponent<RectTransform>();
         instructionTextRect.anchorMin = new Vector2(0f, 0.4f);
@@ -236,6 +156,7 @@ public class SceneBuilder
         buttonTmpText.color = Color.white;
         buttonTmpText.alignment = TextAlignmentOptions.Center;
         buttonTmpText.text = "Open Body Map Uploader";
+        ApplyFont(buttonTmpText);
 
         RectTransform buttonTextRect = buttonTextObj.GetComponent<RectTransform>();
         buttonTextRect.anchorMin = new Vector2(0f, 0f);
@@ -247,20 +168,24 @@ public class SceneBuilder
         OpenURLHelper urlHelper = managerObj.AddComponent<OpenURLHelper>();
         UnityEditor.Events.UnityEventTools.AddPersistentListener(button.onClick, urlHelper.OpenWebClient);
 
-        // Hook Text to Receiver
-        receiver.detailText = detailTmpText;
-        receiver.statusText = statusTmpText;
+        // Hook Text to Receiver (deleted panels are set to null)
+        receiver.detailText = null;
+        receiver.statusText = null;
         receiver.instructionPanel = instructionPanelObj;
-        receiver.noticePanel = noticePanelObj;
-        receiver.noticeText = noticeTmpText;
-        receiver.detailPanel = detailPanelObj;
+        receiver.noticePanel = null;
+        receiver.noticeText = null;
+        receiver.detailPanel = null;
 
         // 6. Setup EventSystem if missing
         if (GameObject.FindObjectOfType<UnityEngine.EventSystems.EventSystem>() == null)
         {
             GameObject eventSystemObj = new GameObject("EventSystem");
             eventSystemObj.AddComponent<UnityEngine.EventSystems.EventSystem>();
+#if ENABLE_INPUT_SYSTEM
+            eventSystemObj.AddComponent<UnityEngine.InputSystem.UI.InputSystemUIInputModule>();
+#else
             eventSystemObj.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
+#endif
         }
 
         // 7. Save Scene
@@ -312,6 +237,17 @@ public class SceneBuilder
         foreach (var go in rootObjects)
         {
             Debug.Log($"[SceneBuilder] Root GameObject: {go.name}");
+        }
+    }
+
+    private static void ApplyFont(TextMeshProUGUI tmpText)
+    {
+        if (tmpText == null) return;
+        TMP_FontAsset krFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Resources/Fonts/NotoSansKR.asset");
+        if (krFont != null)
+        {
+            tmpText.font = krFont;
+            tmpText.fontSharedMaterial = krFont.material;
         }
     }
 }

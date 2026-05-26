@@ -20,14 +20,31 @@ namespace StarterAssets
 		public bool cursorLocked = true;
 		public bool cursorInputForLook = true;
 
+		[Header("Input Control")]
+		public bool inputsEnabled = true;
+
+		public void SetInputsEnabled(bool enabled)
+		{
+			inputsEnabled = enabled;
+			if (!enabled)
+			{
+				move = Vector2.zero;
+				look = Vector2.zero;
+				jump = false;
+				sprint = false;
+			}
+		}
+
 #if ENABLE_INPUT_SYSTEM
 		public void OnMove(InputValue value)
 		{
+			if (!inputsEnabled) return;
 			MoveInput(value.Get<Vector2>());
 		}
 
 		public void OnLook(InputValue value)
 		{
+			if (!inputsEnabled) return;
 			if(cursorInputForLook)
 			{
 				LookInput(value.Get<Vector2>());
@@ -36,11 +53,13 @@ namespace StarterAssets
 
 		public void OnJump(InputValue value)
 		{
+			if (!inputsEnabled) return;
 			JumpInput(value.isPressed);
 		}
 
 		public void OnSprint(InputValue value)
 		{
+			if (!inputsEnabled) return;
 			SprintInput(value.isPressed);
 		}
 #endif

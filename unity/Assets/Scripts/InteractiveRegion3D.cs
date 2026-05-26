@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 
 public class InteractiveRegion3D : MonoBehaviour
 {
@@ -39,7 +40,9 @@ public class InteractiveRegion3D : MonoBehaviour
 
     private void CreateHoverText()
     {
-        hoverTextObj = new GameObject("HoverText");
+        if (hoverTextObj != null) return;
+
+        hoverTextObj = new GameObject("Region Hover");
         hoverTextObj.transform.SetParent(transform, false);
 
         float textX = 1.0f;
@@ -77,11 +80,20 @@ public class InteractiveRegion3D : MonoBehaviour
 
         // Add 3D TextMeshPro component
         var tmp = hoverTextObj.AddComponent<TMPro.TextMeshPro>();
+        if (tmp == null)
+        {
+            Debug.LogError("[InteractiveRegion3D] Failed to add TextMeshPro component.");
+            return;
+        }
+
+        BodyMapAIController.ApplyKoreanFont(tmp);
         
         string hex = string.IsNullOrEmpty(colorHex) ? "#FFFF00" : colorHex;
         if (!hex.StartsWith("#")) hex = "#" + hex;
         
-        tmp.text = $"Region #{id}\n<color={hex}><b>{colorName.ToUpper()}</b></color>";
+        string nameUpper = string.IsNullOrEmpty(colorName) ? "UNKNOWN" : colorName.ToUpper();
+        
+        tmp.text = $"Region #{id}\n<color={hex}><b>{nameUpper}</b></color>";
         tmp.fontSize = 8; // Larger font size for visibility
         tmp.alignment = TMPro.TextAlignmentOptions.Center;
         tmp.color = Color.white;
@@ -97,28 +109,51 @@ public class InteractiveRegion3D : MonoBehaviour
 
         // Add a small dark semi-transparent background card behind the text for visibility
         GameObject bgObj = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        bgObj.name = "TooltipBackground";
-        bgObj.transform.SetParent(hoverTextObj.transform, false);
-        bgObj.transform.localPosition = new Vector3(0f, 0f, 0.02f); // slightly behind the text
-        bgObj.transform.localScale = new Vector3(14f, 6f, 1f); // fits 2 lines of text nicely
-        
-        // Remove collider from background so it doesn't intercept raycasts
-        Destroy(bgObj.GetComponent<Collider>());
-
-        var bgRenderer = bgObj.GetComponent<Renderer>();
-        if (bgRenderer != null)
+        if (bgObj != null)
         {
-            Shader unlitShader = Shader.Find("Sprites/Default");
-            if (unlitShader == null) unlitShader = Shader.Find("Unlit/Transparent");
-            Material bgMat = new Material(unlitShader);
-            bgMat.color = new Color(0f, 0f, 0f, 0.9f); // 90% opaque black background card for maximum readability
-            bgRenderer.material = bgMat;
+            bgObj.name = "TooltipBackground";
+            bgObj.transform.SetParent(hoverTextObj.transform, false);
+            bgObj.transform.localPosition = new Vector3(0f, 0f, 0.02f); // slightly behind the text
+            bgObj.transform.localScale = new Vector3(14f, 6f, 1f); // fits 2 lines of text nicely
             
-            // Force high sortingOrder (just behind text) so background also renders in front of 2D sprites
-            bgRenderer.sortingOrder = 999;
+            // Remove collider from background so it doesn't intercept raycasts
+            var col = bgObj.GetComponent<Collider>();
+            if (col != null) Destroy(col);
+
+            var bgRenderer = bgObj.GetComponent<Renderer>();
+            if (bgRenderer != null)
+            {
+                Shader unlitShader = Shader.Find("Sprites/Default");
+                if (unlitShader == null) unlitShader = Shader.Find("Unlit/Transparent");
+                Material bgMat = new Material(unlitShader);
+                bgMat.color = new Color(0f, 0f, 0f, 0.9f); // 90% opaque black background card for maximum readability
+                bgRenderer.material = bgMat;
+                
+                // Force high sortingOrder (just behind text) so background also renders in front of 2D sprites
+                bgRenderer.sortingOrder = 999;
+            }
         }
 
         hoverTextObj.SetActive(false);
+    }
+
+    public void UpdateHoverText()
+    {
+        if (hoverTextObj == null)
+        {
+            CreateHoverText();
+        }
+        else
+        {
+            var tmp = hoverTextObj.GetComponent<TMPro.TextMeshPro>();
+            if (tmp != null)
+            {
+                string hex = string.IsNullOrEmpty(colorHex) ? "#FFFF00" : colorHex;
+                if (!hex.StartsWith("#")) hex = "#" + hex;
+                string nameUpper = string.IsNullOrEmpty(colorName) ? "UNKNOWN" : colorName.ToUpper();
+                tmp.text = $"Region #{id}\n<color={hex}><b>{nameUpper}</b></color>";
+            }
+        }
     }
 
     void Update()
@@ -133,10 +168,24 @@ public class InteractiveRegion3D : MonoBehaviour
     void LateUpdate()
     {
         // Billboard effect: Make hover text face the camera
-        if (hoverTextObj != null && hoverTextObj.activeSelf && Camera.main != null)
+        if (hoverTextObj != null && hoverTextObj.activeSelf)
         {
-            hoverTextObj.transform.LookAt(Camera.main.transform);
-            hoverTextObj.transform.Rotate(0f, 180f, 0f);
+            Camera cam = Camera.main;
+            if (cam == null) cam = FindFirstObjectByType<Camera>();
+            if (cam != null)
+            {
+                Vector3 screenPos = cam.WorldToScreenPoint(transform.position);
+                // Hide if behind camera frustum to prevent visual errors
+                if (screenPos.z < 0)
+                {
+                    hoverTextObj.SetActive(false);
+                }
+                else
+                {
+                    hoverTextObj.transform.LookAt(cam.transform);
+                    hoverTextObj.transform.Rotate(0f, 180f, 0f);
+                }
+            }
         }
     }
 
@@ -318,5 +367,226 @@ public class InteractiveRegion3D : MonoBehaviour
         shape.radius = 0.1f;
 
         ps.Play();
+    }
+
+    // ── Tripo3D Progress Visuals & 3D Swap ──
+    private Coroutine generatingPulseCoroutine;
+    private GameObject formingTextObj;
+
+    public void StartGeneratingVisuals()
+    {
+        if (generatingPulseCoroutine != null) StopCoroutine(generatingPulseCoroutine);
+        generatingPulseCoroutine = StartCoroutine(GeneratingPulseSequence());
+
+        // Create forming billboard status
+        if (formingTextObj == null)
+        {
+            formingTextObj = new GameObject("Forming Text");
+            formingTextObj.transform.SetParent(transform, false);
+            formingTextObj.transform.localPosition = new Vector3(0f, -0.4f, -0.2f);
+            formingTextObj.transform.localScale = new Vector3(0.06f, 0.06f, 0.06f);
+
+            var tmp = formingTextObj.AddComponent<TMPro.TextMeshPro>();
+            BodyMapAIController.ApplyKoreanFont(tmp);
+            tmp.text = "forming...";
+            tmp.fontSize = 6;
+            tmp.alignment = TMPro.TextAlignmentOptions.Center;
+            tmp.color = new Color(1f, 0.6f, 0.1f, 0.9f); // gold/orange
+            tmp.outlineWidth = 0.2f;
+            tmp.outlineColor = Color.black;
+
+            var renderer = formingTextObj.GetComponent<Renderer>();
+            if (renderer != null) renderer.sortingOrder = 1001;
+        }
+        formingTextObj.SetActive(true);
+
+        // Highlight/Glow effect using orange/gold outline
+        if (outlineObj == null)
+        {
+            outlineObj = new GameObject("GeneratingHighlight");
+            outlineObj.transform.SetParent(transform, false);
+            outlineObj.transform.localPosition = new Vector3(0f, 0f, 0.01f);
+            outlineObj.transform.localScale = new Vector3(1.05f, 1.05f, 1.0f);
+
+            SpriteRenderer parentSr = GetComponent<SpriteRenderer>();
+            SpriteRenderer outlineSr = outlineObj.AddComponent<SpriteRenderer>();
+            if (parentSr != null)
+            {
+                outlineSr.sprite = parentSr.sprite;
+                outlineSr.sortingOrder = parentSr.sortingOrder - 1;
+            }
+
+            Material mat = new Material(Shader.Find("Sprites/Default"));
+            mat.color = new Color(1f, 0.6f, 0.1f, 0.7f); // orange/gold glow
+            outlineSr.material = mat;
+        }
+    }
+
+    public void StopGeneratingVisuals()
+    {
+        if (generatingPulseCoroutine != null)
+        {
+            StopCoroutine(generatingPulseCoroutine);
+            generatingPulseCoroutine = null;
+        }
+        if (formingTextObj != null)
+        {
+            formingTextObj.SetActive(false);
+        }
+        if (outlineObj != null)
+        {
+            Destroy(outlineObj);
+            outlineObj = null;
+        }
+        transform.localScale = originalScale;
+    }
+
+    private IEnumerator GeneratingPulseSequence()
+    {
+        float speed = 3f;
+        while (true)
+        {
+            float scaleFactor = 1.0f + Mathf.Sin(Time.time * speed) * 0.06f; // slow pulse
+            transform.localScale = originalScale * scaleFactor;
+            yield return null;
+        }
+    }
+
+    public void SwapSpriteWith3DModel(GameObject glbObject)
+    {
+        StopGeneratingVisuals();
+        StartCoroutine(TransitionSpriteTo3DSequence(glbObject));
+    }
+
+    private IEnumerator TransitionSpriteTo3DSequence(GameObject glbObject)
+    {
+        SpriteRenderer sr = GetComponent<SpriteRenderer>();
+        Vector3 final3DScale = glbObject.transform.localScale;
+        glbObject.transform.localScale = Vector3.zero;
+        glbObject.SetActive(true);
+
+        // Fetch all renderers and their original colors
+        Renderer[] renderers = glbObject.GetComponentsInChildren<Renderer>(true);
+        var originalColors = new System.Collections.Generic.Dictionary<Material, Color>();
+        var colorPropertyNames = new System.Collections.Generic.Dictionary<Material, string>();
+
+        foreach (var rend in renderers)
+        {
+            foreach (var mat in rend.materials)
+            {
+                if (originalColors.ContainsKey(mat)) continue;
+
+                string propName = null;
+                if (mat.HasProperty("_BaseColor")) propName = "_BaseColor";
+                else if (mat.HasProperty("_Color")) propName = "_Color";
+
+                if (propName != null)
+                {
+                    Color origCol = mat.GetColor(propName);
+                    originalColors[mat] = origCol;
+                    colorPropertyNames[mat] = propName;
+
+                    // Set rendering mode to transparent if possible
+                    ConfigureMaterialForTransparency(mat);
+                }
+            }
+        }
+
+        Color startColor = sr != null ? sr.color : Color.white;
+        float elapsed = 0f;
+        float duration = 0.8f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, elapsed / duration);
+
+            if (sr != null)
+            {
+                Color c = startColor;
+                c.a = Mathf.Lerp(startColor.a, 0f, t);
+                sr.color = c;
+            }
+
+            glbObject.transform.localScale = Vector3.Lerp(Vector3.zero, final3DScale, t);
+
+            // Fade in 3D materials
+            foreach (var kvp in originalColors)
+            {
+                Material mat = kvp.Key;
+                Color origCol = kvp.Value;
+                string propName = colorPropertyNames[mat];
+
+                Color curCol = origCol;
+                curCol.a = Mathf.Lerp(0f, origCol.a, t);
+                mat.SetColor(propName, curCol);
+            }
+
+            yield return null;
+        }
+
+        if (sr != null) sr.enabled = false;
+
+        // Restore opaque rendering mode for performance and correct shadow rendering
+        foreach (var kvp in originalColors)
+        {
+            Material mat = kvp.Key;
+            Color origCol = kvp.Value;
+            string propName = colorPropertyNames[mat];
+            mat.SetColor(propName, origCol);
+            ConfigureMaterialForOpaque(mat);
+        }
+    }
+
+    private void ConfigureMaterialForTransparency(Material mat)
+    {
+        if (mat.shader.name.Contains("Universal Render Pipeline") || mat.shader.name.Contains("Lit"))
+        {
+            mat.SetFloat("_Surface", 1); // Transparent
+            mat.SetFloat("_Blend", 0); // Alpha
+            mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            mat.SetInt("_ZWrite", 0);
+            mat.DisableKeyword("_ALPHATEST_ON");
+            mat.EnableKeyword("_ALPHABLEND_ON");
+            mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        }
+        else
+        {
+            mat.SetFloat("_Mode", 2); // Fade
+            mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            mat.SetInt("_ZWrite", 0);
+            mat.DisableKeyword("_ALPHATEST_ON");
+            mat.EnableKeyword("_ALPHABLEND_ON");
+            mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        }
+    }
+
+    private void ConfigureMaterialForOpaque(Material mat)
+    {
+        if (mat.shader.name.Contains("Universal Render Pipeline") || mat.shader.name.Contains("Lit"))
+        {
+            mat.SetFloat("_Surface", 0); // Opaque
+            mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
+            mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
+            mat.SetInt("_ZWrite", 1);
+            mat.DisableKeyword("_ALPHATEST_ON");
+            mat.DisableKeyword("_ALPHABLEND_ON");
+            mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            mat.renderQueue = -1;
+        }
+        else
+        {
+            mat.SetFloat("_Mode", 0); // Opaque
+            mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
+            mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
+            mat.SetInt("_ZWrite", 1);
+            mat.DisableKeyword("_ALPHATEST_ON");
+            mat.DisableKeyword("_ALPHABLEND_ON");
+            mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            mat.renderQueue = -1;
+        }
     }
 }
