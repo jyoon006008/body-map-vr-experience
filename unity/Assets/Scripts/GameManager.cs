@@ -52,7 +52,7 @@ public class GameManager : MonoBehaviour
         {
             bgmAudioSource.clip = clip;
             bgmAudioSource.loop = true;
-            bgmAudioSource.volume = 0.22f; // Gentle background volume
+            bgmAudioSource.volume = 0.11f; // Gentle background volume (reduced by 50%)
             bgmAudioSource.spatialBlend = 0f; // 2D Stereo
             bgmAudioSource.playOnAwake = false;
             bgmAudioSource.Play();
