@@ -10,6 +10,7 @@ public class LanguageSelector : MonoBehaviour
         {
             GameManager.Instance.currentLanguage = languageCode;
             Debug.Log($"[LanguageSelector] GameManager.Instance.currentLanguage set to {languageCode}");
+            GameManager.Instance.PlayBackgroundMusic();
         }
         else
         {

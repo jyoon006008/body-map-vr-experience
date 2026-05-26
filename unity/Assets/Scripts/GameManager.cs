@@ -34,4 +34,33 @@ public class GameManager : MonoBehaviour
 
     public string GetSelectedEnvironmentSceneName() => selectedEnvironmentSceneName;
     public string GetSelectedEnvironmentDisplayName() => selectedEnvironmentDisplayName;
+
+    [Header("Background Music")]
+    private AudioSource bgmAudioSource;
+
+    public void PlayBackgroundMusic()
+    {
+        if (bgmAudioSource != null && bgmAudioSource.isPlaying) return;
+
+        if (bgmAudioSource == null)
+        {
+            bgmAudioSource = gameObject.AddComponent<AudioSource>();
+        }
+
+        AudioClip clip = Resources.Load<AudioClip>("Audio/Therapy_Music");
+        if (clip != null)
+        {
+            bgmAudioSource.clip = clip;
+            bgmAudioSource.loop = true;
+            bgmAudioSource.volume = 0.22f; // Gentle background volume
+            bgmAudioSource.spatialBlend = 0f; // 2D Stereo
+            bgmAudioSource.playOnAwake = false;
+            bgmAudioSource.Play();
+            Debug.Log("[GameManager] Background music (Therapy_Music) started playing.");
+        }
+        else
+        {
+            Debug.LogError("[GameManager] Background music file 'Resources/Audio/Therapy_Music' not found! Make sure Therapy_Music.mp3 is placed inside Assets/Resources/Audio folder.");
+        }
+    }
 }
