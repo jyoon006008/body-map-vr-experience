@@ -1570,7 +1570,7 @@ public class BodyMapAIController : MonoBehaviour
 
         if (reflectionState == ReflectionState.InitialIntro)
         {
-            if (mem != null && mem.aiQuestionCount < 3)
+            if (mem != null && mem.aiQuestionCount < 4)
             {
                 history.Add(new MessageData { role = "assistant", content = cleanAiResponse });
                 AddChatMessage("AI", cleanAiResponse, Color.white);
