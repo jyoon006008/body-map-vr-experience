@@ -47,20 +47,29 @@ public class GameManager : MonoBehaviour
             bgmAudioSource = gameObject.AddComponent<AudioSource>();
         }
 
-        AudioClip clip = Resources.Load<AudioClip>("Audio/Therapy_Music");
-        if (clip != null)
+        // Start asynchronous loading to prevent main thread blocking (lag)
+        StartCoroutine(LoadAndPlayBgmAsync());
+    }
+
+    private System.Collections.IEnumerator LoadAndPlayBgmAsync()
+    {
+        ResourceRequest request = Resources.LoadAsync<AudioClip>("Audio/Therapy_Music");
+        yield return request;
+
+        AudioClip clip = request.asset as AudioClip;
+        if (clip != null && bgmAudioSource != null)
         {
             bgmAudioSource.clip = clip;
             bgmAudioSource.loop = true;
-            bgmAudioSource.volume = 0.11f; // Gentle background volume (reduced by 50%)
+            bgmAudioSource.volume = 0.055f; // Reduced to 25% of original (0.22f * 0.25 = 0.055f)
             bgmAudioSource.spatialBlend = 0f; // 2D Stereo
             bgmAudioSource.playOnAwake = false;
             bgmAudioSource.Play();
-            Debug.Log("[GameManager] Background music (Therapy_Music) started playing.");
+            Debug.Log("[GameManager] Background music (Therapy_Music) started playing asynchronously.");
         }
-        else
+        else if (clip == null)
         {
-            Debug.LogError("[GameManager] Background music file 'Resources/Audio/Therapy_Music' not found! Make sure Therapy_Music.mp3 is placed inside Assets/Resources/Audio folder.");
+            Debug.LogError("[GameManager] Background music file 'Resources/Audio/Therapy_Music' not found asynchronously!");
         }
     }
 }
