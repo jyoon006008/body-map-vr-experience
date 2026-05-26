@@ -468,7 +468,7 @@ public class BodyMapAIController : MonoBehaviour
     {
         if (mapReceiver == null) return;
         if (!isUiActive) return; // Only update selection when active
-        if (reflectionState == ReflectionState.RegionReflection && lastSelectedRegion != null) return;
+        if (reflectionState != ReflectionState.AwaitingSelection) return;
         if (aiAskedQuestion && conversationState != ConversationState.WaitingForUser) return;
 
         InteractiveRegion3D activeRegion = mapReceiver.selectedRegionNormal;
@@ -554,6 +554,7 @@ public class BodyMapAIController : MonoBehaviour
     private void StartRegionReflection(InteractiveRegion3D region)
     {
         reflectionState = ReflectionState.RegionReflection;
+        lastSelectedRegion = region;
         isProcessingUserAnswer = false;
 
         if (!regionMemories.ContainsKey(region.id))
