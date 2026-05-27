@@ -1,4 +1,5 @@
 using System.Collections;
+using System;
 using System.IO;
 using System.Text;
 using TMPro;
@@ -64,6 +65,7 @@ public class SafePlaceIntroManager : MonoBehaviour
     private float cameraYaw;
     private float cameraPitch;
     private Material safePlaceSkyboxMaterial;
+    private GameObject safePlacePanoramaSphere;
     private Material aiSphereMaterial;
     private Material aiGlowMaterial;
     private GameObject aiGlowSphere;
@@ -89,6 +91,7 @@ public class SafePlaceIntroManager : MonoBehaviour
         SafePlaceSessionData.GetOrCreate();
         LoadOpenAIKey();
         EnsureSceneObjects();
+        StartCoroutine(RequestMicrophonePermissionIfNeeded());
         ShowTutorialPage(0);
     }
 
@@ -286,59 +289,109 @@ public class SafePlaceIntroManager : MonoBehaviour
 
     private Material CreateTransparentSphereMaterial(float alpha)
     {
-        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+        Material resourceMaterial = Resources.Load<Material>("Materials/OrbCore");
+        if (resourceMaterial != null)
+        {
+            Material resourceInstance = new Material(resourceMaterial);
+            ApplySphereMaterialColor(resourceInstance, alpha);
+            return resourceInstance;
+        }
+
+        Shader shader = Shader.Find("Sprites/Default");
+        if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null) shader = Shader.Find("Unlit/Color");
         if (shader == null) shader = Shader.Find("Standard");
 
         Material mat = new Material(shader);
-        SetTransparentMaterial(mat);
-        Color color = new Color(0.55f, 0.96f, 1f, alpha);
-        mat.SetColor("_BaseColor", color);
-        mat.SetColor("_Color", color);
-        mat.SetColor("_EmissionColor", new Color(0.22f, 1f, 1f, alpha * 2f));
-        mat.EnableKeyword("_EMISSION");
+        ApplySphereMaterialColor(mat, alpha);
         return mat;
     }
 
     private Material CreateGlowMaterial(float alpha)
     {
-        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+        Material resourceMaterial = Resources.Load<Material>("Materials/OrbAura");
+        if (resourceMaterial != null)
+        {
+            Material resourceInstance = new Material(resourceMaterial);
+            ApplyGlowMaterialColor(resourceInstance, alpha);
+            return resourceInstance;
+        }
+
+        Shader shader = Shader.Find("Sprites/Default");
+        if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
         if (shader == null) shader = Shader.Find("Unlit/Transparent");
 
         Material mat = new Material(shader);
-        SetTransparentMaterial(mat);
-        Color color = new Color(0.2f, 0.92f, 1f, alpha);
-        mat.SetColor("_BaseColor", color);
-        mat.SetColor("_Color", color);
+        ApplyGlowMaterialColor(mat, alpha);
         return mat;
     }
 
-    private void SetTransparentMaterial(Material mat)
+    private void ApplySphereMaterialColor(Material mat, float alpha)
     {
-        mat.SetFloat("_Surface", 1f);
-        mat.SetFloat("_Blend", 0f);
+        PrepareTransparentMaterial(mat);
+        Color color = new Color(0.55f, 0.96f, 1f, alpha);
+        SetMaterialColor(mat, "_BaseColor", color);
+        SetMaterialColor(mat, "_Color", color);
+        SetMaterialColor(mat, "_EmissionColor", new Color(0.22f, 1f, 1f, alpha * 2f));
+        mat.EnableKeyword("_EMISSION");
+    }
+
+    private void ApplyGlowMaterialColor(Material mat, float alpha)
+    {
+        PrepareTransparentMaterial(mat);
+        Color color = new Color(0.2f, 0.92f, 1f, alpha);
+        SetMaterialColor(mat, "_BaseColor", color);
+        SetMaterialColor(mat, "_Color", color);
+    }
+
+    private void PrepareTransparentMaterial(Material mat)
+    {
+        if (mat == null) return;
+
+        SetMaterialFloat(mat, "_Surface", 1f);
+        SetMaterialFloat(mat, "_Blend", 0f);
         mat.SetOverrideTag("RenderType", "Transparent");
         mat.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
-        mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-        mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-        mat.SetInt("_ZWrite", 0);
+        SetMaterialInt(mat, "_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        SetMaterialInt(mat, "_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        SetMaterialInt(mat, "_ZWrite", 0);
         mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+    }
+
+    private void SetMaterialColor(Material mat, string property, Color color)
+    {
+        if (mat != null && mat.HasProperty(property))
+        {
+            mat.SetColor(property, color);
+        }
+    }
+
+    private void SetMaterialFloat(Material mat, string property, float value)
+    {
+        if (mat != null && mat.HasProperty(property))
+        {
+            mat.SetFloat(property, value);
+        }
+    }
+
+    private void SetMaterialInt(Material mat, string property, int value)
+    {
+        if (mat != null && mat.HasProperty(property))
+        {
+            mat.SetInt(property, value);
+        }
     }
 
     private void SetSphereAlpha(float alpha)
     {
         if (aiSphereMaterial != null)
         {
-            Color color = new Color(0.55f, 0.96f, 1f, alpha);
-            aiSphereMaterial.SetColor("_BaseColor", color);
-            aiSphereMaterial.SetColor("_Color", color);
-            aiSphereMaterial.SetColor("_EmissionColor", new Color(0.22f, 1f, 1f, alpha * 2f));
+            ApplySphereMaterialColor(aiSphereMaterial, alpha);
         }
 
         if (aiGlowMaterial != null)
         {
-            Color glow = new Color(0.2f, 0.92f, 1f, alpha * 0.18f);
-            aiGlowMaterial.SetColor("_BaseColor", glow);
-            aiGlowMaterial.SetColor("_Color", glow);
+            ApplyGlowMaterialColor(aiGlowMaterial, alpha * 0.18f);
         }
 
         if (aiPointLight != null)
@@ -367,9 +420,7 @@ public class SafePlaceIntroManager : MonoBehaviour
         if (aiGlowMaterial != null)
         {
             float alpha = Mathf.Lerp(0.1f, 0.22f, pulse);
-            Color glow = new Color(0.2f, 0.92f, 1f, alpha);
-            aiGlowMaterial.SetColor("_BaseColor", glow);
-            aiGlowMaterial.SetColor("_Color", glow);
+            ApplyGlowMaterialColor(aiGlowMaterial, alpha);
         }
     }
 
@@ -465,9 +516,8 @@ public class SafePlaceIntroManager : MonoBehaviour
         var data = SafePlaceSessionData.GetOrCreate();
         if (conversationStep == 0)
         {
-            data.userName = answer;
-            conversationStep = 1;
-            inputField.text = "";
+            StartCoroutine(HandleNameAnswer(answer, data));
+            if (Time.frameCount >= 0) return;
             string dayQuestion = IsKorean()
                 ? $"만나서 반가워요, {data.userName}님. 오늘 하루는 어땠나요?"
                 : $"It is nice to meet you, {data.userName}. How has your day been?";
@@ -525,6 +575,115 @@ public class SafePlaceIntroManager : MonoBehaviour
         inputField.gameObject.SetActive(false);
         submitButton.gameObject.SetActive(false);
         StartCoroutine(LoadExternalSafePlacePanorama());
+    }
+
+    private IEnumerator HandleNameAnswer(string rawAnswer, SafePlaceSessionData data)
+    {
+        inputField.gameObject.SetActive(false);
+        submitButton.gameObject.SetActive(false);
+
+        string extractedName = LocalCleanNameHeuristics(rawAnswer);
+        if (!string.IsNullOrEmpty(openAiApiKey))
+        {
+            yield return StartCoroutine(ExtractNameRoutine(rawAnswer, name =>
+            {
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    extractedName = name.Trim();
+                }
+            }));
+        }
+
+        if (string.IsNullOrWhiteSpace(extractedName))
+        {
+            extractedName = rawAnswer.Trim();
+        }
+
+        data.userName = extractedName;
+        conversationStep = 1;
+        inputField.text = "";
+        string dayQuestion = IsKorean()
+            ? $"만나서 반가워요, {data.userName}님. 오늘 하루는 어땠나요?"
+            : $"It is nice to meet you, {data.userName}. How has your day been?";
+        SpeakAndPrepareForAnswer(dayQuestion);
+    }
+
+    private IEnumerator ExtractNameRoutine(string rawAnswer, Action<string> onComplete)
+    {
+        string systemPrompt = IsKorean()
+            ? "사용자의 문장에서 이름만 추출하세요. 설명 없이 이름만 답하세요. 이름이 없으면 빈 문자열만 답하세요."
+            : "Extract only the user's name from the sentence. Reply with only the name. If there is no name, reply with an empty string.";
+        string messagesJson =
+            "{\"role\":\"system\",\"content\":\"" + EscapeJsonString(systemPrompt) + "\"}," +
+            "{\"role\":\"user\",\"content\":\"" + EscapeJsonString(rawAnswer) + "\"}";
+        string jsonPayload = $"{{\"model\":\"gpt-4o-mini\",\"temperature\":0,\"messages\":[{messagesJson}]}}";
+
+        using (UnityWebRequest chatReq = new UnityWebRequest("https://api.openai.com/v1/chat/completions", "POST"))
+        {
+            byte[] bodyRaw = Encoding.UTF8.GetBytes(jsonPayload);
+            chatReq.uploadHandler = new UploadHandlerRaw(bodyRaw);
+            chatReq.downloadHandler = new DownloadHandlerBuffer();
+            chatReq.SetRequestHeader("Authorization", "Bearer " + openAiApiKey);
+            chatReq.SetRequestHeader("Content-Type", "application/json");
+
+            yield return chatReq.SendWebRequest();
+
+            if (chatReq.result != UnityWebRequest.Result.Success)
+            {
+                Debug.LogWarning("[SafePlaceVoice] Name extraction API failed: " + chatReq.error);
+                onComplete?.Invoke("");
+                yield break;
+            }
+
+            try
+            {
+                OpenAIChatResponse chatRes = JsonUtility.FromJson<OpenAIChatResponse>(chatReq.downloadHandler.text);
+                string name = chatRes != null && chatRes.choices != null && chatRes.choices.Length > 0 && chatRes.choices[0].message != null
+                    ? chatRes.choices[0].message.content.Trim()
+                    : "";
+                onComplete?.Invoke(LocalCleanNameHeuristics(name));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[SafePlaceVoice] Failed to parse name extraction response: " + ex.Message);
+                onComplete?.Invoke("");
+            }
+        }
+    }
+
+    private string LocalCleanNameHeuristics(string rawAnswer)
+    {
+        if (string.IsNullOrWhiteSpace(rawAnswer)) return "";
+
+        string value = rawAnswer.Trim();
+        string[] removeParts =
+        {
+            "안녕하세요", "안녕", "반가워", "반갑습니다", "제 이름은", "내 이름은", "저는", "나는",
+            "입니다", "이에요", "예요", "이야", "야", "라고 합니다", "라고 해요",
+            "hello", "hi", "my name is", "i am", "i'm", "call me", "nice to meet you"
+        };
+
+        for (int i = 0; i < removeParts.Length; i++)
+        {
+            value = value.Replace(removeParts[i], "", StringComparison.OrdinalIgnoreCase);
+        }
+
+        value = value.Replace("!", "").Replace(".", "").Replace(",", "").Replace("?", "").Trim();
+        if (value.Contains(" "))
+        {
+            string[] tokens = value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (tokens.Length > 0)
+            {
+                value = tokens[tokens.Length - 1];
+            }
+        }
+
+        if (value.Length > 20)
+        {
+            value = value.Substring(0, 20).Trim();
+        }
+
+        return value;
     }
 
     private void OnManualInputChanged(string value)
@@ -697,6 +856,10 @@ public class SafePlaceIntroManager : MonoBehaviour
                 dialoguePanel.gameObject.SetActive(true);
                 dialogueText.text = text;
                 Debug.LogWarning("[SafePlaceVoice] TTS clip or AudioSource is null. Continuing with text only.");
+                if (!listenAfter)
+                {
+                    yield return new WaitForSeconds(GetReadingFallbackSeconds(text));
+                }
             }
         }
         else if (voiceConversationEnabled)
@@ -704,11 +867,19 @@ public class SafePlaceIntroManager : MonoBehaviour
             dialoguePanel.gameObject.SetActive(true);
             dialogueText.text = text;
             Debug.LogWarning("[SafePlaceVoice] OpenAI API key is empty. Continuing with text only.");
+            if (!listenAfter)
+            {
+                yield return new WaitForSeconds(GetReadingFallbackSeconds(text));
+            }
         }
         else
         {
             dialoguePanel.gameObject.SetActive(true);
             dialogueText.text = text;
+            if (!listenAfter)
+            {
+                yield return new WaitForSeconds(GetReadingFallbackSeconds(text));
+            }
         }
 
         if (listenAfter)
@@ -724,6 +895,12 @@ public class SafePlaceIntroManager : MonoBehaviour
             inputField.Select();
             StartVoiceRecording();
         }
+    }
+
+    private float GetReadingFallbackSeconds(string text)
+    {
+        int length = string.IsNullOrEmpty(text) ? 0 : text.Length;
+        return Mathf.Clamp(length * 0.09f, 2.5f, 8.0f);
     }
 
     private void StartVoiceRecording()
@@ -1042,7 +1219,7 @@ public class SafePlaceIntroManager : MonoBehaviour
     private IEnumerator ProcessTTS(string text, System.Action<AudioClip> onComplete)
     {
         string escapedText = EscapeJsonString(text);
-        string jsonPayload = $"{{\"model\":\"tts-1\",\"input\":\"{escapedText}\",\"voice\":\"nova\",\"response_format\":\"mp3\"}}";
+        string jsonPayload = $"{{\"model\":\"tts-1\",\"input\":\"{escapedText}\",\"voice\":\"nova\",\"response_format\":\"pcm\"}}";
 
         using (UnityWebRequest request = new UnityWebRequest("https://api.openai.com/v1/audio/speech", "POST"))
         {
@@ -1061,24 +1238,111 @@ public class SafePlaceIntroManager : MonoBehaviour
                 yield break;
             }
 
-            string tempPath = Path.Combine(Application.temporaryCachePath, "safe_place_tts_output.mp3");
-            File.WriteAllBytes(tempPath, request.downloadHandler.data);
-            string fileUrl = "file:///" + tempPath.Replace("\\", "/");
-
-            using (UnityWebRequest audioLoader = UnityWebRequestMultimedia.GetAudioClip(fileUrl, AudioType.MPEG))
+            AudioClip clip = CreateAudioClipFromPcm16(request.downloadHandler.data, "SafePlaceTTS", 24000, 1);
+            if (clip != null)
             {
-                yield return audioLoader.SendWebRequest();
-                if (audioLoader.result == UnityWebRequest.Result.Success)
-                {
-                    onComplete?.Invoke(DownloadHandlerAudioClip.GetContent(audioLoader));
-                }
-                else
-                {
-                    Debug.LogError("[SafePlaceVoice] Failed to load TTS audio: " + audioLoader.error);
-                    onComplete?.Invoke(null);
-                }
+                Debug.Log("[SafePlaceVoice] TTS PCM clip ready. seconds=" + clip.length.ToString("0.00"));
+                onComplete?.Invoke(clip);
+            }
+            else
+            {
+                Debug.LogError("[SafePlaceVoice] Failed to decode TTS PCM bytes.");
+                onComplete?.Invoke(null);
             }
         }
+    }
+
+    private AudioClip CreateAudioClipFromPcm16(byte[] pcmBytes, string clipName, int sampleRate, int channels)
+    {
+        if (pcmBytes == null || pcmBytes.Length < 2 || channels <= 0 || sampleRate <= 0) return null;
+
+        int sampleCount = pcmBytes.Length / 2;
+        sampleCount -= sampleCount % channels;
+        if (sampleCount <= 0) return null;
+
+        float[] samples = new float[sampleCount];
+        for (int i = 0; i < sampleCount; i++)
+        {
+            int offset = i * 2;
+            samples[i] = Mathf.Clamp(BitConverter.ToInt16(pcmBytes, offset) / 32768f, -1f, 1f);
+        }
+
+        AudioClip clip = AudioClip.Create(clipName, sampleCount / channels, channels, sampleRate, false);
+        clip.SetData(samples, 0);
+        return clip;
+    }
+
+    private AudioClip CreateAudioClipFromWav(byte[] wavBytes, string clipName)
+    {
+        if (wavBytes == null || wavBytes.Length < 44) return null;
+        if (Encoding.ASCII.GetString(wavBytes, 0, 4) != "RIFF" ||
+            Encoding.ASCII.GetString(wavBytes, 8, 4) != "WAVE")
+        {
+            return null;
+        }
+
+        int channels = 0;
+        int sampleRate = 0;
+        int bitsPerSample = 0;
+        short audioFormat = 0;
+        int dataStart = -1;
+        int dataSize = 0;
+        int pos = 12;
+
+        while (pos + 8 <= wavBytes.Length)
+        {
+            string chunkId = Encoding.ASCII.GetString(wavBytes, pos, 4);
+            int chunkSize = BitConverter.ToInt32(wavBytes, pos + 4);
+            int chunkDataStart = pos + 8;
+
+            if (chunkId == "fmt " && chunkDataStart + 16 <= wavBytes.Length)
+            {
+                audioFormat = BitConverter.ToInt16(wavBytes, chunkDataStart);
+                channels = BitConverter.ToInt16(wavBytes, chunkDataStart + 2);
+                sampleRate = BitConverter.ToInt32(wavBytes, chunkDataStart + 4);
+                bitsPerSample = BitConverter.ToInt16(wavBytes, chunkDataStart + 14);
+            }
+            else if (chunkId == "data")
+            {
+                dataStart = chunkDataStart;
+                dataSize = Mathf.Min(chunkSize, wavBytes.Length - dataStart);
+                break;
+            }
+
+            pos = chunkDataStart + chunkSize + (chunkSize % 2);
+        }
+
+        int bytesPerSample = bitsPerSample / 8;
+        if (channels <= 0 || sampleRate <= 0 || bytesPerSample <= 0 || dataStart < 0 || dataSize <= 0) return null;
+
+        int totalSamples = dataSize / bytesPerSample;
+        float[] samples = new float[totalSamples];
+
+        for (int i = 0; i < totalSamples; i++)
+        {
+            int sampleOffset = dataStart + i * bytesPerSample;
+            if (bitsPerSample == 16)
+            {
+                samples[i] = Mathf.Clamp(BitConverter.ToInt16(wavBytes, sampleOffset) / 32768f, -1f, 1f);
+            }
+            else if (bitsPerSample == 32 && audioFormat == 3)
+            {
+                samples[i] = Mathf.Clamp(BitConverter.ToSingle(wavBytes, sampleOffset), -1f, 1f);
+            }
+            else if (bitsPerSample == 8)
+            {
+                samples[i] = (wavBytes[sampleOffset] - 128) / 128f;
+            }
+            else
+            {
+                Debug.LogError("[SafePlaceVoice] Unsupported WAV format. format=" + audioFormat + ", bits=" + bitsPerSample);
+                return null;
+            }
+        }
+
+        AudioClip clip = AudioClip.Create(clipName, totalSamples / channels, channels, sampleRate, false);
+        clip.SetData(samples, 0);
+        return clip;
     }
 
     private byte[] ConvertSamplesToWav(float[] samples, int frequency, int channels)
@@ -1132,7 +1396,7 @@ public class SafePlaceIntroManager : MonoBehaviour
 
     private void LoadOpenAIKey()
     {
-        string path = Path.Combine(Application.dataPath, "../api_keys.json");
+        string path = GetAPIKeysPath();
         if (!File.Exists(path))
         {
             Debug.LogWarning("[SafePlaceVoice] api_keys.json not found. Voice conversation will fall back to text input.");
@@ -1150,6 +1414,46 @@ public class SafePlaceIntroManager : MonoBehaviour
         }
 
         Debug.Log("[SafePlaceVoice] OpenAI API key loaded.");
+    }
+
+    private string GetAPIKeysPath()
+    {
+        string fileName = "api_keys.json";
+        string[] candidates =
+        {
+            Path.Combine(Application.dataPath, "../", fileName),
+            Path.Combine(Application.dataPath, "../../", fileName),
+            Path.Combine(Application.dataPath, "../../../", fileName),
+            Path.Combine(Application.dataPath, "../../../../", fileName),
+            Path.Combine(Directory.GetCurrentDirectory(), fileName),
+            Path.Combine(Application.persistentDataPath, fileName)
+        };
+
+        for (int i = 0; i < candidates.Length; i++)
+        {
+            string fullPath = Path.GetFullPath(candidates[i]);
+            if (File.Exists(fullPath))
+            {
+                Debug.Log("[SafePlaceVoice] api_keys.json found at: " + fullPath);
+                return fullPath;
+            }
+        }
+
+        return Path.GetFullPath(candidates[0]);
+    }
+
+    private IEnumerator RequestMicrophonePermissionIfNeeded()
+    {
+        if (Application.HasUserAuthorization(UserAuthorization.Microphone))
+        {
+            yield break;
+        }
+
+        yield return Application.RequestUserAuthorization(UserAuthorization.Microphone);
+        if (!Application.HasUserAuthorization(UserAuthorization.Microphone))
+        {
+            Debug.LogWarning("[SafePlaceVoice] Microphone permission was not granted.");
+        }
     }
 
     private string EscapeJsonString(string s)
@@ -1238,16 +1542,81 @@ public class SafePlaceIntroManager : MonoBehaviour
         Shader shader = Shader.Find("Skybox/Panoramic");
         if (shader == null)
         {
-            Debug.LogError("[SafePlaceIntro] Skybox/Panoramic shader was not found.");
-            return;
+            Debug.LogWarning("[SafePlaceIntro] Skybox/Panoramic shader was not found. Using panorama sphere fallback.");
+            if (camera != null)
+            {
+                camera.clearFlags = CameraClearFlags.SolidColor;
+                camera.backgroundColor = Color.black;
+            }
+        }
+        else
+        {
+            safePlaceSkyboxMaterial = new Material(shader);
+            safePlaceSkyboxMaterial.SetTexture("_MainTex", panorama);
+            safePlaceSkyboxMaterial.SetFloat("_Exposure", 1f);
+            RenderSettings.skybox = safePlaceSkyboxMaterial;
         }
 
-        safePlaceSkyboxMaterial = new Material(shader);
-        safePlaceSkyboxMaterial.SetTexture("_MainTex", panorama);
-        safePlaceSkyboxMaterial.SetFloat("_Exposure", 1f);
-        RenderSettings.skybox = safePlaceSkyboxMaterial;
+        EnsurePanoramaSphere(panorama);
         RenderSettings.ambientLight = new Color(0.55f, 0.58f, 0.6f);
         DynamicGI.UpdateEnvironment();
+    }
+
+    private void EnsurePanoramaSphere(Texture2D panorama)
+    {
+        if (panorama == null) return;
+
+        if (safePlacePanoramaSphere == null)
+        {
+            safePlacePanoramaSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            safePlacePanoramaSphere.name = "SafePlacePanoramaSphere";
+            Collider collider = safePlacePanoramaSphere.GetComponent<Collider>();
+            if (collider != null) Destroy(collider);
+
+            MeshFilter meshFilter = safePlacePanoramaSphere.GetComponent<MeshFilter>();
+            if (meshFilter != null && meshFilter.sharedMesh != null)
+            {
+                Mesh invertedMesh = Instantiate(meshFilter.sharedMesh);
+                invertedMesh.name = "SafePlacePanoramaSphere_Inverted";
+                int[] triangles = invertedMesh.triangles;
+                for (int i = 0; i + 2 < triangles.Length; i += 3)
+                {
+                    int temp = triangles[i];
+                    triangles[i] = triangles[i + 1];
+                    triangles[i + 1] = temp;
+                }
+                invertedMesh.triangles = triangles;
+
+                Vector3[] normals = invertedMesh.normals;
+                for (int i = 0; i < normals.Length; i++)
+                {
+                    normals[i] = -normals[i];
+                }
+                invertedMesh.normals = normals;
+                meshFilter.sharedMesh = invertedMesh;
+            }
+        }
+
+        Camera camera = Camera.main;
+        safePlacePanoramaSphere.transform.position = camera != null ? camera.transform.position : Vector3.zero;
+        safePlacePanoramaSphere.transform.rotation = Quaternion.identity;
+        safePlacePanoramaSphere.transform.localScale = Vector3.one * 80f;
+
+        Renderer renderer = safePlacePanoramaSphere.GetComponent<Renderer>();
+        if (renderer != null)
+        {
+            Shader unlitShader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (unlitShader == null) unlitShader = Shader.Find("Unlit/Texture");
+            if (unlitShader == null) unlitShader = Shader.Find("Sprites/Default");
+
+            Material material = new Material(unlitShader);
+            if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", panorama);
+            if (material.HasProperty("_MainTex")) material.SetTexture("_MainTex", panorama);
+            if (material.HasProperty("_Cull")) material.SetFloat("_Cull", 0f);
+            renderer.sharedMaterial = material;
+        }
+
+        safePlacePanoramaSphere.SetActive(true);
     }
 
     private void ToggleMapSelectionBoard()

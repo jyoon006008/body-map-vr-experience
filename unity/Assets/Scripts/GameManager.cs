@@ -53,7 +53,7 @@ public class GameManager : MonoBehaviour
 
     private System.Collections.IEnumerator LoadAndPlayBgmAsync()
     {
-        ResourceRequest request = Resources.LoadAsync<AudioClip>("Audio/Therapy_bg");
+        ResourceRequest request = Resources.LoadAsync<AudioClip>("Audio/bgtherapy");
         yield return request;
 
         AudioClip clip = request.asset as AudioClip;
@@ -65,11 +65,11 @@ public class GameManager : MonoBehaviour
             bgmAudioSource.spatialBlend = 0f; // 2D Stereo
             bgmAudioSource.playOnAwake = false;
             bgmAudioSource.Play();
-            Debug.Log("[GameManager] Background music (Therapy_bg) started playing asynchronously.");
+            Debug.Log("[GameManager] Background music (bgtherapy) started playing asynchronously.");
         }
         else if (clip == null)
         {
-            Debug.LogError("[GameManager] Background music file 'Resources/Audio/Therapy_bg' not found asynchronously!");
+            Debug.LogError("[GameManager] Background music file 'Resources/Audio/bgtherapy' not found asynchronously!");
         }
     }
 }

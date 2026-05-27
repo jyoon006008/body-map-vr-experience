@@ -113,7 +113,42 @@ graph LR
 
 ---
 
-## 5. 빌드 및 배포 형상 관리 (Deploy & CI/CD)
+## 5. Standalone 빌드 문제점 분석 및 기술적 해결 방안 (Standalone Build Fixes)
+
+독립 실행형 플레이어(Windows/macOS)에서 발생하던 환경적 빌드 오류를 제어하기 위해 적용된 기술적 구현 내역입니다.
+
+### A. TTS 재생 포맷의 변환 (MP3 -> WAV)
+* **문제**: Unity WebGL이나 Editor와 달리, 일부 OS Standalone 환경에서는 하드웨어 미디어 기초(Media Foundation) 데크가 없을 때 Unity의 `UnityWebRequestMultimedia.GetAudioClip`을 통한 `AudioType.MPEG` 디코딩이 차단되거나 무음으로 렌더링되는 경향이 있습니다.
+* **해결**: OpenAI TTS API 요청 시 `response_format` 필드를 `"wav"`로 지정하고, 로컬 디스크에 임시 파일 `tts_output.wav`로 저장한 다음, Unity `AudioType.WAV` 코덱으로 디스크 스트리밍 로드합니다. WAV는 비압축 PCM 데이터로 Unity 내장 네이티브 오디오 코덱에 의해 전 플랫폼에서 어떠한 추가 라이브러리 없이 디코딩됩니다.
+
+### B. Dynamic 셰이더 빌드 깨짐 해결 (URP Lit 마이그레이션)
+* **문제**: `UI_AdditiveFresnel.shader`는 레거시 빌트인 파이프라인 전용으로 구성되어 URP Standalone 빌드 시 컴파일 에러를 내며 Magenta(쉐이더 부재) 색상으로 렌더링되었습니다.
+* **해결**: `OrbCore.mat` 및 `OrbAura.mat`의 내장 셰이더 정보를 URP 호환 셰이더인 `Universal Render Pipeline/Lit` (GUID: `933532a4fcc9baf4fa0491de14d08ed7`)로 일괄 교체했습니다. C# 코드단에서도 URP 속성 규격인 `_BaseColor` 및 `_EmissionColor`에 대응하도록 픽셀 조작 인터페이스를 통합했습니다.
+
+### C. 자막 노출 시퀀스 디버깅 및 가독 대기 타임아웃
+* **문제**: 오디오 로딩에 실패하거나, 사용자의 입력을 대기하지 않고 단독 메시지만 출력하는 AI 나레이션 노출 시 TTS 재생이 없을 시 자막창이 즉각 닫혀 텍스트를 인지할 수 없었습니다.
+* **해결**: 대화창 `dialoguePanel`의 `SetActive(true)` 초기 상태를 확고히 처리하고, 오디오 리소스를 재생할 수 없을 때에도 텍스트의 글자 수에 비례한 가중치 시간(최소 2.5초 ~ 최대 7.5초) 동안 화면에 머무르도록 하는 동적 대기 시간 코루틴(`SpeakLineRoutine`)을 설계했습니다.
+
+### D. 다중 플랫폼 경로 탐색기 (Key Pathing)
+* **문제**: macOS 등 샌드박스 기반의 실행 환경에서는 `Application.dataPath`가 `.app` 내부 Contents 폴더를 지시하므로, 빌드 실행기 옆에 둔 `api_keys.json`을 검출하지 못하는 경로 이탈 문제가 일어납니다.
+* **해결**: 다음과 같이 다중 디렉토리 후보군을 순회하며 존재하는 첫 파일을 선택하는 동적 탐색 도우미 `GetAPIKeysPath()`를 스크립트에 이식하여 환경 독립적인 키 수급 구조를 완성했습니다:
+  1. `Application.dataPath/../api_keys.json` (Windows, Editor)
+  2. `Application.dataPath/../../api_keys.json` (macOS app root)
+  3. `Application.dataPath/../../../api_keys.json` (macOS parent path)
+  4. `System.IO.Directory.GetCurrentDirectory()/api_keys.json`
+  5. `Application.persistentDataPath/api_keys.json`
+
+### E. macOS 마이크 액세스 권한 및 plist 기술 키 주입
+* **문제**: macOS에서는 빌드 생성 시 `Info.plist`에 마이크 사용 기술문구가 주입되지 않으면 오디오 수음이 비활성화되거나 샌드박스 크래시가 유발됩니다.
+* **해결**: `BuildScript.cs` 빌드 자동화 단계에 `PlayerSettings.macOS.microphoneUsageDescription` 메타데이터를 추가 삽입하고, 인트로 씬 로드 시 `Application.RequestUserAuthorization(UserAuthorization.Microphone)`을 활용해 운영체제 권한을 정식 호출하도록 이식했습니다.
+
+### F. 인공지능 기반 사용자 이름 추출기 (Name Extraction)
+* **문제**: AI가 이름을 물어봤을 때 사용자가 문장형으로 대답하면 ("내 이름은 준우야") 문장 전체가 이름 필드에 저장되어 "만나서 반가워요, 내 이름은 준우야님" 과 같은 어색한 상황이 유발됩니다.
+* **해결**: `gpt-4o-mini` 모델의 zero-temperature 쿼리를 사용하는 `ExtractNameRoutine`을 도입해 사용자의 대답 문맥에서 고유 이름만 한 단어로 정제 추출합니다. 인터넷 단절 등의 예외 시에는 조사("입니다", "예요", "에요", "이야", "래", "이라네") 및 인사말 접두사("내 이름은", "나는" 등)를 정규화하여 걸러내는 로컬 텍스트 휴리스틱 필터링을 백업으로 가동합니다.
+
+---
+
+## 6. 빌드 및 배포 형상 관리 (Deploy & CI/CD)
 
 * **저장소 주소**: `https://github.com/jyoon006008/body-map-vr-experience`
 * **웹 호스팅**: GitHub Pages를 통해 `/web` 경로를 서비스하고 있습니다.

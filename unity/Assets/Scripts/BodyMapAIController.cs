@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Networking;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -266,6 +267,7 @@ public class BodyMapAIController : MonoBehaviour
         playerInputs = FindObjectOfType<StarterAssets.StarterAssetsInputs>();
 
         LoadAPIKeys();
+        StartCoroutine(RequestMicrophonePermissionIfNeeded());
         CreateSiriSphere(); // Setup 3D Breathing Emotional Orb
         
         try
@@ -1214,7 +1216,7 @@ public class BodyMapAIController : MonoBehaviour
         Debug.Log("[TTS] Generate once");
 
         string escapedText = EscapeJsonString(text);
-        string jsonPayload = $"{{\"model\":\"tts-1\",\"input\":\"{escapedText}\",\"voice\":\"nova\",\"response_format\":\"mp3\"}}";
+        string jsonPayload = $"{{\"model\":\"tts-1\",\"input\":\"{escapedText}\",\"voice\":\"nova\",\"response_format\":\"pcm\"}}";
 
         using (UnityWebRequest request = new UnityWebRequest("https://api.openai.com/v1/audio/speech", "POST"))
         {
@@ -1231,31 +1233,16 @@ public class BodyMapAIController : MonoBehaviour
                 byte[] data = request.downloadHandler.data;
                 if (data != null && data.Length > 0)
                 {
-                    string tempPath = Path.Combine(Application.temporaryCachePath, "tts_output.mp3");
-                    try
+                    AudioClip clip = CreateAudioClipFromPcm16(data, "BodyMapTTS", 24000, 1);
+                    if (clip != null)
                     {
-                        File.WriteAllBytes(tempPath, data);
+                        Debug.Log("[TTS] PCM clip ready. seconds=" + clip.length.ToString("0.00"));
+                        onComplete?.Invoke(clip);
                     }
-                    catch (System.Exception ex)
+                    else
                     {
-                        Debug.LogError($"[TTS] Failed to save temp: {ex.Message}");
-                    }
-
-                    string fileUrl = "file:///" + tempPath.Replace("\\", "/");
-                    using (UnityWebRequest audioLoader = UnityWebRequestMultimedia.GetAudioClip(fileUrl, AudioType.MPEG))
-                    {
-                        yield return audioLoader.SendWebRequest();
-
-                        if (audioLoader.result == UnityWebRequest.Result.Success)
-                        {
-                            AudioClip clip = DownloadHandlerAudioClip.GetContent(audioLoader);
-                            onComplete?.Invoke(clip);
-                        }
-                        else
-                        {
-                            Debug.LogError($"[TTS] Failed to load audio from temp file: {audioLoader.error}");
-                            onComplete?.Invoke(null);
-                        }
+                        Debug.LogError("[TTS] Failed to decode TTS PCM bytes.");
+                        onComplete?.Invoke(null);
                     }
                 }
                 else
@@ -1269,6 +1256,99 @@ public class BodyMapAIController : MonoBehaviour
                 onComplete?.Invoke(null);
             }
         }
+    }
+
+    private AudioClip CreateAudioClipFromPcm16(byte[] pcmBytes, string clipName, int sampleRate, int channels)
+    {
+        if (pcmBytes == null || pcmBytes.Length < 2 || channels <= 0 || sampleRate <= 0) return null;
+
+        int sampleCount = pcmBytes.Length / 2;
+        sampleCount -= sampleCount % channels;
+        if (sampleCount <= 0) return null;
+
+        float[] samples = new float[sampleCount];
+        for (int i = 0; i < sampleCount; i++)
+        {
+            int offset = i * 2;
+            samples[i] = Mathf.Clamp(BitConverter.ToInt16(pcmBytes, offset) / 32768f, -1f, 1f);
+        }
+
+        AudioClip clip = AudioClip.Create(clipName, sampleCount / channels, channels, sampleRate, false);
+        clip.SetData(samples, 0);
+        return clip;
+    }
+
+    private AudioClip CreateAudioClipFromWav(byte[] wavBytes, string clipName)
+    {
+        if (wavBytes == null || wavBytes.Length < 44) return null;
+        if (Encoding.ASCII.GetString(wavBytes, 0, 4) != "RIFF" ||
+            Encoding.ASCII.GetString(wavBytes, 8, 4) != "WAVE")
+        {
+            return null;
+        }
+
+        int channels = 0;
+        int sampleRate = 0;
+        int bitsPerSample = 0;
+        short audioFormat = 0;
+        int dataStart = -1;
+        int dataSize = 0;
+        int pos = 12;
+
+        while (pos + 8 <= wavBytes.Length)
+        {
+            string chunkId = Encoding.ASCII.GetString(wavBytes, pos, 4);
+            int chunkSize = BitConverter.ToInt32(wavBytes, pos + 4);
+            int chunkDataStart = pos + 8;
+
+            if (chunkId == "fmt " && chunkDataStart + 16 <= wavBytes.Length)
+            {
+                audioFormat = BitConverter.ToInt16(wavBytes, chunkDataStart);
+                channels = BitConverter.ToInt16(wavBytes, chunkDataStart + 2);
+                sampleRate = BitConverter.ToInt32(wavBytes, chunkDataStart + 4);
+                bitsPerSample = BitConverter.ToInt16(wavBytes, chunkDataStart + 14);
+            }
+            else if (chunkId == "data")
+            {
+                dataStart = chunkDataStart;
+                dataSize = Mathf.Min(chunkSize, wavBytes.Length - dataStart);
+                break;
+            }
+
+            pos = chunkDataStart + chunkSize + (chunkSize % 2);
+        }
+
+        int bytesPerSample = bitsPerSample / 8;
+        if (channels <= 0 || sampleRate <= 0 || bytesPerSample <= 0 || dataStart < 0 || dataSize <= 0) return null;
+
+        int totalSamples = dataSize / bytesPerSample;
+        float[] samples = new float[totalSamples];
+
+        for (int i = 0; i < totalSamples; i++)
+        {
+            int sampleOffset = dataStart + i * bytesPerSample;
+            if (bitsPerSample == 16)
+            {
+                samples[i] = Mathf.Clamp(BitConverter.ToInt16(wavBytes, sampleOffset) / 32768f, -1f, 1f);
+            }
+            else if (bitsPerSample == 32 && audioFormat == 3)
+            {
+                samples[i] = Mathf.Clamp(BitConverter.ToSingle(wavBytes, sampleOffset), -1f, 1f);
+            }
+            else if (bitsPerSample == 8)
+            {
+                samples[i] = (wavBytes[sampleOffset] - 128) / 128f;
+            }
+            else
+            {
+                Debug.LogError("[TTS] Unsupported WAV format. format=" + audioFormat + ", bits=" + bitsPerSample);
+                return null;
+            }
+        }
+
+        AudioClip clip = AudioClip.Create(clipName, totalSamples / channels, channels, sampleRate, false);
+        clip.SetData(samples, 0);
+        return clip;
     }
 
     private IEnumerator PlayTTSAndReturnToListening(AudioClip clip, string text = "", bool renderText = true)
@@ -2114,7 +2194,7 @@ public class BodyMapAIController : MonoBehaviour
 
     private void LoadAPIKeys()
     {
-        string path = Path.Combine(Application.dataPath, "../api_keys.json");
+        string path = GetAPIKeysPath();
         if (File.Exists(path))
         {
             string json = File.ReadAllText(path);
@@ -2131,6 +2211,46 @@ public class BodyMapAIController : MonoBehaviour
             string json = JsonUtility.ToJson(template, true);
             File.WriteAllText(path, json);
             Debug.LogError($"[BodyMapAI] api_keys.json not found! Template created at {path}.");
+        }
+    }
+
+    public static string GetAPIKeysPath()
+    {
+        string fileName = "api_keys.json";
+        string[] candidates =
+        {
+            Path.Combine(Application.dataPath, "../", fileName),
+            Path.Combine(Application.dataPath, "../../", fileName),
+            Path.Combine(Application.dataPath, "../../../", fileName),
+            Path.Combine(Application.dataPath, "../../../../", fileName),
+            Path.Combine(Directory.GetCurrentDirectory(), fileName),
+            Path.Combine(Application.persistentDataPath, fileName)
+        };
+
+        for (int i = 0; i < candidates.Length; i++)
+        {
+            string fullPath = Path.GetFullPath(candidates[i]);
+            if (File.Exists(fullPath))
+            {
+                Debug.Log("[BodyMapAI] api_keys.json found at: " + fullPath);
+                return fullPath;
+            }
+        }
+
+        return Path.GetFullPath(candidates[0]);
+    }
+
+    private IEnumerator RequestMicrophonePermissionIfNeeded()
+    {
+        if (Application.HasUserAuthorization(UserAuthorization.Microphone))
+        {
+            yield break;
+        }
+
+        yield return Application.RequestUserAuthorization(UserAuthorization.Microphone);
+        if (!Application.HasUserAuthorization(UserAuthorization.Microphone))
+        {
+            Debug.LogWarning("[BodyMapAI] Microphone permission was not granted.");
         }
     }
 

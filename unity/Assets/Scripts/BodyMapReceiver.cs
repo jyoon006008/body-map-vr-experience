@@ -428,7 +428,7 @@ public class BodyMapReceiver : MonoBehaviour
                     string keysJson = "{}";
                     try
                     {
-                        string path = Path.Combine(Application.dataPath, "../api_keys.json");
+                        string path = BodyMapAIController.GetAPIKeysPath();
                         if (File.Exists(path))
                         {
                             keysJson = File.ReadAllText(path);
@@ -1022,7 +1022,8 @@ public class BodyMapReceiver : MonoBehaviour
                 Debug.LogWarning($"[BodyMapReceiver] Raycast did not hit ground. Falling back to default ground Y: {defaultGroundY}");
             }
 
-            targetPos.y = groundY + (spriteHeight / 2f);
+            float gardenLiftOffset = selectedEnv.Contains("Garden") ? 0.45f : 0f;
+            targetPos.y = groundY + (spriteHeight / 2f) + gardenLiftOffset;
 
             avatarSpriteRenderer.transform.position = targetPos;
             avatarSpriteRenderer.transform.rotation = targetRot;
