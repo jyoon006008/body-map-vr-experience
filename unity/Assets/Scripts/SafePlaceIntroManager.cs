@@ -1613,6 +1613,8 @@ public class SafePlaceIntroManager : MonoBehaviour
             if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", panorama);
             if (material.HasProperty("_MainTex")) material.SetTexture("_MainTex", panorama);
             if (material.HasProperty("_Cull")) material.SetFloat("_Cull", 0f);
+            if (material.HasProperty("_ZWrite")) material.SetFloat("_ZWrite", 0f);
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Geometry;
             renderer.sharedMaterial = material;
         }
 
@@ -1630,7 +1632,7 @@ public class SafePlaceIntroManager : MonoBehaviour
         mapBoardCanvas.gameObject.SetActive(mapBoardVisible);
         if (aiSphere != null)
         {
-            aiSphere.SetActive(!mapBoardVisible);
+            aiSphere.SetActive(true);
         }
 
         if (mapBoardVisible)
@@ -1654,6 +1656,8 @@ public class SafePlaceIntroManager : MonoBehaviour
         mapBoardCanvas = boardGO.GetComponent<Canvas>();
         mapBoardCanvas.renderMode = RenderMode.WorldSpace;
         mapBoardCanvas.worldCamera = Camera.main;
+        mapBoardCanvas.overrideSorting = true;
+        mapBoardCanvas.sortingOrder = 500;
 
         RectTransform boardRect = boardGO.GetComponent<RectTransform>();
         boardRect.sizeDelta = new Vector2(1240f, 700f);
