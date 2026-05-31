@@ -1,0 +1,2140 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DP VR Art Therapy - Jemmy Stage Prototype</title>
+  <style>
+    :root {
+      --bg: #eef2f5;
+      --panel: #ffffff;
+      --ink: #1b2430;
+      --muted: #697586;
+      --line: #d9e0e7;
+      --ai: #f1f5f9;
+      --user: #d7f0ea;
+      --accent: #0f8f8f;
+      --accent-dark: #087272;
+      --warn: #a75f00;
+      --safe: #3b7c5b;
+      --body: #5f5aa2;
+      --object: #9a4f68;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    .app {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    header {
+      background: #17212f;
+      color: white;
+      padding: 14px 18px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.12);
+    }
+
+    .topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-size: 18px;
+      line-height: 1.2;
+      margin: 0;
+      font-weight: 650;
+    }
+
+    .status {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      color: #c8d3df;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #5ee0a4;
+      box-shadow: 0 0 0 3px rgba(94,224,164,0.18);
+    }
+
+    .stagebar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      border: 0;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+    }
+
+    button:active { transform: translateY(1px); }
+
+    .stage {
+      color: #d8e2ed;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      padding: 8px 11px;
+      font-size: 13px;
+    }
+
+    .stage.active {
+      background: #ffffff;
+      color: #17212f;
+      border-color: white;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(360px, 0.92fr) minmax(420px, 1.08fr);
+      gap: 14px;
+      padding: 14px;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .pane {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      min-height: 0;
+      height: 100%;
+      display: grid;
+      overflow: hidden;
+    }
+
+    .chat-pane {
+      grid-template-rows: auto 1fr auto;
+    }
+
+    .chat-pane.guide-mode {
+      grid-template-rows: auto 1fr;
+    }
+
+    .chat-pane.guide-mode .composer {
+      display: none;
+    }
+
+    .pane-head {
+      padding: 13px 15px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .pane-title {
+      font-size: 15px;
+      font-weight: 650;
+      margin: 0;
+    }
+
+    .stage-chip {
+      font-size: 12px;
+      color: white;
+      background: var(--accent);
+      padding: 5px 8px;
+      border-radius: 999px;
+    }
+
+    .messages {
+      padding: 18px;
+      overflow: auto;
+      min-height: 0;
+      background: linear-gradient(#fbfcfd, #f6f8fa);
+    }
+
+    .guide {
+      padding: 4px;
+      display: grid;
+      gap: 12px;
+      max-width: 760px;
+    }
+
+    .guide-card {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 8px;
+      padding: 16px 18px;
+    }
+
+    .guide-card h2 {
+      margin: 0 0 8px;
+      font-size: 17px;
+    }
+
+    .guide-card p {
+      margin: 0;
+      color: #344255;
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .guide-card p + p {
+      margin-top: 10px;
+    }
+
+    .guide-steps {
+      display: grid;
+      gap: 10px;
+    }
+
+    .guide-step {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .guide-step h3 {
+      margin: 0 0 7px;
+      font-size: 14px;
+      color: #17212f;
+    }
+
+    .guide-step p {
+      margin: 0;
+      color: #344255;
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .guide-list {
+      margin: 10px 0 0;
+      padding-left: 18px;
+      color: #344255;
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .msg {
+      max-width: 84%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin: 0 0 10px;
+      font-size: 14px;
+      line-height: 1.45;
+      border: 1px solid rgba(0,0,0,0.04);
+    }
+
+    .msg.ai {
+      background: var(--ai);
+      margin-right: auto;
+    }
+
+    .msg.user {
+      background: var(--user);
+      margin-left: auto;
+    }
+
+    .msg .who {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+      font-weight: 650;
+    }
+
+    .composer {
+      border-top: 1px solid var(--line);
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 8px;
+      background: #fff;
+    }
+
+    .composer.guide-locked textarea,
+    .composer.guide-locked button {
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
+    .stage-actions {
+      display: none;
+      gap: 8px;
+      padding: 0 12px 12px;
+      background: #fff;
+      border-top: 0;
+    }
+
+    .stage-actions.visible {
+      display: flex;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+
+    textarea {
+      resize: none;
+      min-height: 44px;
+      max-height: 90px;
+      padding: 11px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      font: inherit;
+      line-height: 1.35;
+      outline: none;
+    }
+
+    textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(15,143,143,0.12);
+    }
+
+    .primary {
+      background: var(--accent);
+      color: white;
+      min-width: 82px;
+      padding: 0 14px;
+    }
+
+    .secondary {
+      background: #edf2f7;
+      color: #203040;
+      min-width: 76px;
+      padding: 0 12px;
+    }
+
+    .output-pane {
+      grid-template-rows: auto 1fr;
+    }
+
+    .outputs {
+      padding: 14px;
+      overflow: auto;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-content: start;
+      gap: 12px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .card.wide { grid-column: 1 / -1; }
+
+    .card.hidden {
+      display: none;
+    }
+
+    .card h2 {
+      font-size: 13px;
+      margin: 0;
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #f8fafc;
+    }
+
+    .card-body {
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: #314155;
+      min-height: 86px;
+    }
+
+    .scroll-body {
+      max-height: min(62vh, 620px);
+      overflow: auto;
+    }
+
+    .objectify-card {
+      height: 100%;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .objectify-card .scroll-body {
+      max-height: none;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .bodymap-output-card {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      height: min(72vh, 760px);
+      max-height: none;
+      min-height: 0;
+    }
+
+    .bodymap-output-card #bodyOutput {
+      min-height: 520px;
+      overflow: auto;
+    }
+
+    .stage-output-card[data-output-stage="all"],
+    .stage-output-card[data-output-stage="payload"] {
+      max-height: 150px;
+    }
+
+    .stage-output-card[data-output-stage="all"] .card-body,
+    .stage-output-card[data-output-stage="payload"] .card-body {
+      min-height: 0;
+      max-height: 108px;
+      overflow: auto;
+      padding: 8px 10px;
+    }
+
+    .stage-output-card[data-output-stage="payload"] pre {
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .preview {
+      height: 145px;
+      background:
+        radial-gradient(circle at 74% 22%, rgba(255,255,255,0.86) 0 9%, transparent 10%),
+        linear-gradient(180deg, #9dc7e8 0 45%, #dbeecf 46% 100%);
+      border-bottom: 1px solid var(--line);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .preview::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 35px;
+      height: 22px;
+      background: linear-gradient(90deg, #6b946d, #3d6f7a, #8bb06b);
+      opacity: 0.75;
+    }
+
+    .preview.has-image::after {
+      display: none;
+    }
+
+    .preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .bodymap {
+      height: 145px;
+      display: grid;
+      place-items: center;
+      background: #f5f7fa;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .figure {
+      width: 58px;
+      height: 118px;
+      border-radius: 28px 28px 18px 18px;
+      background:
+        radial-gradient(circle at 48% 12%, #0f172a 0 9%, transparent 10%),
+        linear-gradient(90deg, transparent 0 18%, #42a36b 18% 32%, transparent 32% 52%, #c3535b 52% 64%, transparent 64% 100%),
+        linear-gradient(135deg, transparent 0 58%, #d2b13f 58% 70%, transparent 70%),
+        #fff;
+      border: 1px solid #9aa6b2;
+      box-shadow: 0 10px 24px rgba(20,35,50,0.12);
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 118px 1fr;
+      gap: 7px 10px;
+      margin: 0;
+    }
+
+    .kv dt {
+      color: var(--muted);
+    }
+
+    .kv dd {
+      margin: 0;
+      color: var(--ink);
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font: 12px/1.5 Consolas, monospace;
+      color: #233142;
+    }
+
+    .policy {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .pill {
+      font-size: 12px;
+      color: #324155;
+      background: #edf2f7;
+      border: 1px solid #dbe3ea;
+      border-radius: 999px;
+      padding: 4px 7px;
+    }
+
+    .objectify-slots {
+      display: grid;
+      gap: 12px;
+    }
+
+    .objectify-slot {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .slot-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--line);
+      font-weight: 650;
+    }
+
+    .slot-status {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .slot-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .slot-actions.debug-actions {
+      justify-content: flex-start;
+      flex-wrap: wrap;
+      margin-left: 0;
+      margin-bottom: 8px;
+    }
+
+    .mini-button {
+      min-width: auto;
+      padding: 5px 9px;
+      font-size: 12px;
+      border-radius: 6px;
+    }
+
+    .slot-body {
+      min-height: 86px;
+      padding: 12px;
+      display: grid;
+      align-content: start;
+      gap: 8px;
+    }
+
+    .slot-empty {
+      color: var(--muted);
+      border: 1px dashed #cdd6df;
+      border-radius: 8px;
+      min-height: 64px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      padding: 12px;
+      background: #fbfcfd;
+    }
+
+    .generated-image {
+      width: 100%;
+      max-height: 220px;
+      object-fit: contain;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f5f7fa;
+    }
+
+    .model-placeholder {
+      min-height: 120px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background:
+        radial-gradient(circle at 50% 35%, rgba(15,143,143,0.18), transparent 32%),
+        linear-gradient(135deg, #f7fafc, #edf2f7);
+      display: grid;
+      place-items: center;
+      color: #344255;
+      text-align: center;
+      padding: 12px;
+    }
+
+    .model-viewer {
+      width: 100%;
+      height: 340px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f5f7fa;
+    }
+
+    .upload-control {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: fit-content;
+      padding: 8px 11px;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      font-weight: 650;
+    }
+
+    .upload-control input {
+      display: none;
+    }
+
+    .bridge-flow {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .bridge-step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfcfd;
+    }
+
+    .bridge-step strong {
+      display: block;
+      font-size: 12px;
+      color: #17212f;
+      margin-bottom: 4px;
+    }
+
+    .bridge-step span {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .region-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .region-card {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px;
+      background: #fff;
+    }
+
+    .region-swatch {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 1px solid rgba(0,0,0,0.18);
+      background: var(--region-color, #d9e2ec);
+    }
+
+    .region-card p {
+      margin: 0;
+      color: #17212f;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .region-card small {
+      display: block;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .json-box {
+      max-height: 180px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfcfd;
+    }
+
+    .sample-images {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .sample-image-panel {
+      display: grid;
+      gap: 6px;
+    }
+
+    .sample-image-panel p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    @media (max-width: 980px) {
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+      }
+      .outputs { grid-template-columns: 1fr; }
+      .bridge-flow { grid-template-columns: 1fr; }
+    }
+  </style>
+  <script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="topline">
+        <h1>DP VR Art Therapy - Jemmy Single AI Prototype</h1>
+        <div class="status"><span class="dot"></span><span>One AI system / stage policy mode</span></div>
+      </div>
+      <nav class="stagebar" id="stagebar"></nav>
+    </header>
+
+    <main>
+      <section class="pane chat-pane">
+        <div class="pane-head">
+          <p class="pane-title">Jemmy Chat</p>
+          <span class="stage-chip" id="stageChip">Intro</span>
+        </div>
+        <div class="messages" id="messages"></div>
+        <form class="composer" id="composer">
+          <textarea id="input" placeholder="여기에 답을 입력하세요"></textarea>
+          <button type="button" class="secondary" id="voiceBtn">STT mock</button>
+          <button type="submit" class="primary">전달</button>
+        </form>
+        <div class="stage-actions" id="stageActions">
+          <button type="button" class="secondary" id="talkMoreBtn">조금 더 이야기하기</button>
+          <button type="button" class="primary" id="continueBtn">계속</button>
+        </div>
+      </section>
+
+      <section class="pane output-pane">
+        <div class="pane-head">
+          <p class="pane-title">Stage Outputs</p>
+          <span class="stage-chip" id="modeChip">debug jump enabled</span>
+        </div>
+        <div class="outputs">
+          <article class="card stage-output-card" data-output-stage="safePlace">
+            <div class="preview" id="safePreview"></div>
+            <h2>Safe Place Panorama</h2>
+            <div class="card-body" id="safeOutput">?꾩쭅 safe place description???놁뒿?덈떎.</div>
+          </article>
+
+          <article class="card stage-output-card bodymap-output-card" data-output-stage="bodyMapIntro">
+            <div class="bodymap"><div class="figure"></div></div>
+            <h2>Body Mapping</h2>
+            <div class="card-body scroll-body" id="bodyOutput">?꾩쭅 body map reflection???놁뒿?덈떎.</div>
+          </article>
+
+          <article class="card wide stage-output-card" data-output-stage="regionReflection">
+            <h2>Region Objectification Data</h2>
+            <div class="card-body" id="regionOutput">?꾩쭅 ?좏깮??媛먯젙 ?곸뿭?먯꽌 ?섏쭛???뺣낫媛 ?놁뒿?덈떎.</div>
+          </article>
+
+          <article class="card wide stage-output-card objectify-card" data-output-stage="objectify3d">
+            <h2>3D Objectify Outputs</h2>
+            <div class="card-body scroll-body" id="objectifyOutput">Region Reflection ?곗씠?곌? 以鍮꾨릺硫?Unity objectification pipeline?쇰줈 ?꾨떖?⑸땲??</div>
+          </article>
+
+          <article class="card wide stage-output-card" data-output-stage="all">
+            <h2>Current Stage Policy</h2>
+            <div class="card-body">
+              <dl class="kv" id="policyKv"></dl>
+              <div class="policy" id="policyTags"></div>
+            </div>
+          </article>
+
+          <article class="card wide stage-output-card" data-output-stage="payload">
+            <h2>Collected Prompt / Export Payload</h2>
+            <div class="card-body"><pre id="payload"></pre></div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const stages = {
+      intro: {
+        label: "Intro",
+        mode: "guide",
+        role: "?꾨줈?몄뒪 ?덈궡? 湲곕??④낵 ?ㅻ챸",
+        goal: "?ъ슜?먭? ??VR art therapy 怨쇱젙??臾댁뾿???섍퀬, ?대뼡 寃곌낵臾쇱쓣 ?삳뒗吏 ?댄빐?섍쾶 ?쒕떎.",
+        ask: "???④퀎??梨꾪똿???꾨땲???덈궡 ?붾㈃?낅땲??",
+        guideTitle: "VR Art Therapy Process Guide",
+        guideBody: "??寃쏀뿕? Jemmy? ?④퍡 ?ㅻ뒛??媛먯젙 寃쏀뿕??泥쒖쿇???댄렣蹂닿퀬, ?덉쟾???μ냼瑜??곸긽???? body map???섑???媛먯젙 ?곸뿭????붾줈 ?먯깋?섎뒗 怨쇱젙?낅땲??",
+        guideFlow: [
+          {
+            title: "Notice Your Feelings",
+            text: "?ㅻ뒛??寃쏀뿕??紐멸낵 留덉쓬???대뼡 媛먯젙?쇰줈 ?⑥븘 ?덈뒗吏 泥쒖쿇???뚯븘李⑤━湲??꾪븳 ?쒓컙?낅땲?? Jemmy???ъ슜?먭? ?ㅼ뒪濡쒖쓽 媛먯젙?????덉쟾?섍쾶 諛붾씪蹂????덈룄濡?李⑤텇??吏덈Ц??嫄대꽪?덈떎."
+          },
+          {
+            title: "Build a Safe Place",
+            text: "?몄븞?⑥쓣 ?먮굜 ???덈뒗 怨듦컙??遺꾩쐞湲? 鍮? ?됯컧, ?κ린, ?뚮━ ?깆쓣 ?좎삱由쎈땲?? ???댁슜? ?ъ슜?먭? 癒몃Т瑜????덈뒗 safe place panorama瑜?留뚮뱶?????ъ슜?⑸땲??"
+          },
+          {
+            title: "Explore the Body Map",
+            text: "洹몃┝ ?꾩껜???먮굦怨??좏깮??媛먯젙 ?곸뿭???섎굹???댄렣遊낅땲?? ??붾? ?듯빐 媛먯젙???뺥깭, 吏덇컧, ?吏곸엫, 嫄곕━媛?媛숈? ?⑥꽌瑜?紐⑥쓭?덈떎."
+          },
+          {
+            title: "Prepare Creative Outputs",
+            text: "?섏쭛??媛먯젙???⑥꽌?ㅼ? 留덉?留됱뿉 ?대?吏? 3D object ?앹꽦???꾪븳 prompt濡??뺣━?⑸땲??"
+          }
+        ],
+        tags: ["guide", "orientation", "no-chat"],
+        next: "smallTalk"
+      },
+      smallTalk: {
+        label: "Small Talk",
+        mode: "chat",
+        role: "ice breaking怨?湲곕낯 而⑦뀓?ㅽ듃 ?뺤꽦",
+        goal: "?대쫫??臾산퀬, ?ㅻ뒛 ?섎（媛 ?대븷?붿? ?섎늻硫?Jemmy? ??뷀븯??媛먭컖??留뚮뱺??",
+        ask: "?덈뀞?섏꽭?? ??????ъ젙???④퍡??Jemmy?낅땲?? ?대쫫???대뼸寃?遺덈윭?쒕━硫?醫뗭쓣源뚯슂?",
+        tags: ["name", "ice-breaking", "day", "gentle-start"],
+        next: "safePlace"
+      },
+      safePlace: {
+        label: "Safe Place",
+        mode: "chat",
+        role: "?덉쟾???μ냼 ?곸긽",
+        goal: "panorama ?앹꽦???꾪븳 ?μ냼, 鍮? ?? ?? ?뚮━ ?뺣낫瑜??섏쭛?쒕떎.",
+        ask: "?몄븞?⑥쓣 ?먮굜 ???덈뒗 ?μ냼瑜??섎굹 泥쒖쿇???곸긽?대낫?몄슂.",
+        delayedAsk: "洹멸납? ?대뼡 怨듦컙?멸???",
+        tags: ["panorama", "light", "scent", "sound"],
+        next: "bodyMapIntro"
+      },
+      bodyMapIntro: {
+        label: "Body Mapping",
+        mode: "chat",
+        role: "Unity body map conversation flow with embedded region reflection data collection",
+        goal: "Unity처럼 먼저 전체 body map의 느낌을 묻고, region 선택 후 같은 대화 안에서 지은이 pipeline에 필요한 emotion, texture, surface, motion, weight, temperature, material, metaphor를 자연스럽게 수집한다.",
+        ask: "다양한 색과 형태를 사용하셨네요. 먼저 전체 그림이 어떤 느낌인지 설명해 주실 수 있을까요?",
+        tags: ["unity-flow", "body-map", "region-reflection", "objectification-data"],
+        next: "objectify3d"
+      },
+      objectify3d: {
+        label: "3D Objectify",
+        mode: "guide",
+        role: "Unity objectification pipeline execution",
+        goal: "Region Reflection?먯꽌 ?섏쭛??conversation怨?InteractiveRegion3D瑜?移쒓뎄 ?뚰듃??EmotionObjectificationPipeline???꾨떖??image_prompt, PNG, GLB瑜??앹꽦?쒕떎.",
+        ask: "???④퀎??梨꾪똿???꾨땲???앹꽦 ?뚯씠?꾨씪???뺤씤 ?④퀎?낅땲??",
+        guideTitle: "3D Objectify Pipeline",
+        guideBody: "???④퀎遺?곕뒗 Jemmy媛 ??吏덈Ц???섎뒗 寃껋씠 ?꾨땲?? ?섏쭛??????곗씠?곗? ?좏깮??body map region ?곗씠?곕? Unity ?뚯씠?꾨씪?몄뿉 ?꾨떖?⑸땲??",
+        guideFlow: [
+          {
+            title: "Prompt Generation",
+            text: "EmotionObjectificationPipeline??PromptGenerator瑜??몄텧??conversation怨?InteractiveRegion3D瑜?遺꾩꽍?섍퀬, from_conversation怨?理쒖쥌 image_prompt瑜??앹꽦?⑸땲??"
+          },
+          {
+            title: "Image Generation",
+            text: "OpenAIImageGenerator媛 image_prompt? style bible ?ㅼ젙???ъ슜??region PNG ?대?吏瑜??앹꽦?섍퀬 UserData/{userId}/images????ν빀?덈떎."
+          },
+          {
+            title: "Background Removal",
+            text: "ImageBackgroundRemover媛 ?앹꽦??PNG??諛곌꼍???쒓굅??Meshy ?낅젰??region_{id}_rmb.png瑜?留뚮벊?덈떎."
+          },
+          {
+            title: "3D Generation",
+            text: "imageOnlyMode媛 爰쇱졇 ?덉쑝硫?Meshy3DConverter媛 PNG瑜?GLB濡?蹂?섑븯怨? ObjectSpawner媛 Unity ?ъ뿉 3D object瑜?諛곗튂?⑸땲??"
+          }
+        ],
+        tags: ["PromptGenerator", "OpenAIImageGenerator", "Meshy3DConverter", "ObjectSpawner"],
+        next: "objectify3d"
+      },
+      regionReflection: {
+        label: "Region Reflection",
+        mode: "chat",
+        role: "?좏깮??媛먯젙 ?곸뿭 ?먯깋怨?objectification ?곗씠???섏쭛",
+        goal: "?щ━移섎즺??body mapping ??붿쿂???묎렐?섎㈃?? ?대?吏/3D ?앹꽦???꾪븳 媛먯젙 ?⑥꽌瑜??먯뿰?ㅻ읇寃??섏쭛?쒕떎.",
+        ask: "?댁젣 ?좏깮??媛먯젙 ?곸뿭???④퍡 ?댄렣蹂쇨쾶?? ??遺遺꾩? ?대뼡 媛먯젙??媛源뚯슫媛??",
+        tags: ["emotion", "texture", "motion", "temperature", "metaphor", "object-data"],
+        next: "objectify3d"
+      }
+    };
+
+    const stageOrder = ["intro", "smallTalk", "safePlace", "bodyMapIntro", "objectify3d"];
+
+    Object.assign(stages.bodyMapIntro, {
+      role: "Unity body map conversation flow with InteractiveRegion3D region reflection",
+      goal: "외부 body-map 분석 결과를 받아 InteractiveRegion3D region을 선택하고, Unity 대화 흐름을 유지한 채 지은이 objectification data contract를 채운다.",
+      ask: "다양한 색과 형태를 사용하셨네요. 먼저 전체 그림이 어떤 느낌인지 설명해 주실 수 있을까요?",
+      tags: ["unity-flow", "body-map-upload", "region-reflection", "InteractiveRegion3D", "objectification-data"]
+    });
+
+    const objectificationStyleContract = {
+      sourceProject: "ID5003DesignProject-Jemmy-jieun-objectify-0528",
+      configPath: "Assets/objectification_config.json",
+      activeStyleBibleId: "default_mood",
+      styleProfilePath: "Downloads/ref01.png + Downloads/ref02.png override",
+      referenceImageFolder: "C:/Users/junwo/Downloads",
+      referenceImages: ["ref01.png", "ref02.png"],
+      imageGeneration: {
+        model: "gpt-image-1.5",
+        size: "1024x1024",
+        quality: "high",
+        background: "opaque",
+        output_format: "png",
+        use_reference_images_in_stage2: true,
+        reference_image_count: 2,
+        input_fidelity: "high",
+        background_removal_mode: "edge_flood"
+      },
+      styleLocks: [
+        "abstract emotional toy object",
+        "contemporary designer toy sculpture",
+        "minimalist tactile mascot maquette",
+        "same toy universe same visual species same product line",
+        "primitive simple geometry clean silhouette",
+        "smooth readable forms centered composition",
+        "detachable bead-like googly eyes graphic cartoon minimal",
+        "child-friendly studio-rendered toy product shot",
+        "emotion modifies toy language never defines anatomy",
+        "solid neutral mid-gray background",
+        "object floating in empty void, not sitting on a floor",
+        "no cast shadows, no contact shadows, no ground shadow, no drop shadow, no floor reflection",
+        "non-threatening child-safe"
+      ],
+      eyeDesignRules: [
+        "large simple toy bead eyes allowed and preferred when helpful",
+        "detachable googly-eye language",
+        "graphic cartoon eyes placed on the front upper body",
+        "no realistic eyes, no embedded human-like eyes"
+      ]
+    };
+
+    const companionPersonality = {
+      label: "상냥하고 따뜻한 심리치료사",
+      rule: "사용자를 평가하거나 단정하지 않고, 짧게 공감적으로 반영한 뒤 한 번에 하나의 질문만 한다.",
+      tone: "차분함, 안정감, 부드러운 연기"
+    };
+
+    // GitHub Pages serves this HTML and sample assets. Live AI/image/3D API calls
+    // should go to a Render backend with OpenAI/Meshy keys stored as environment variables.
+    const DEFAULT_REMOTE_API_BASE = "";
+
+    const state = {
+      stage: "intro",
+      messages: [],
+      safePlace: {},
+      bodyMap: {},
+      bodyMappingMeta: {
+        region_id: "",
+        color: "",
+        color_hex: "",
+        pattern: "",
+        body_part: "",
+        visual_description: ""
+      },
+      regionProfile: {
+        emotion: "",
+        texture: "",
+        metaphor: "",
+        material: "",
+        surface: "",
+        motion: "",
+        weight: "",
+        temperature: "",
+      },
+      uploadedBodyMap: {
+        imageDataUrl: "",
+        fileName: "",
+        status: ""
+      },
+      bodyMapSample: {
+        annotatedImageDataUrl: "",
+        transparentImageDataUrl: "",
+        files: {}
+      },
+      analysisBridge: {
+        unityReceiverUrl: "http://127.0.0.1:8200",
+        receiverStatus: "not checked",
+        analyseSiteStatus: "not opened",
+        returnStatus: "waiting for BodyMapPayload",
+        payload: null,
+        regions: [],
+        selectedRegionId: ""
+      },
+      prompts: {},
+      objectifyOutputs: {
+        image_prompt: "",
+        image_prompt_status: "",
+        generated_image_url: "",
+        generated_image_path: "",
+        generated_image_status: "",
+        reference_images_used: [],
+        generated_3d_url: "",
+        generated_3d_path: "",
+        generated_3d_status: ""
+      },
+      readyToContinue: {},
+      freeTalk: {},
+      userName: ""
+    };
+
+    const stagebar = document.getElementById("stagebar");
+    const chatPane = document.querySelector(".chat-pane");
+    const messages = document.getElementById("messages");
+    const input = document.getElementById("input");
+    const composer = document.getElementById("composer");
+    const stageActions = document.getElementById("stageActions");
+    const continueBtn = document.getElementById("continueBtn");
+    const talkMoreBtn = document.getElementById("talkMoreBtn");
+    const voiceBtn = document.getElementById("voiceBtn");
+    const stageChip = document.getElementById("stageChip");
+    const safeOutput = document.getElementById("safeOutput");
+    const safePreview = document.getElementById("safePreview");
+    const bodyOutput = document.getElementById("bodyOutput");
+    const regionOutput = document.getElementById("regionOutput");
+    const objectifyOutput = document.getElementById("objectifyOutput");
+    const policyKv = document.getElementById("policyKv");
+    const policyTags = document.getElementById("policyTags");
+    const payload = document.getElementById("payload");
+    let safePlacePromptTimer = null;
+
+    function initStageButtons() {
+      stageOrder.forEach(id => {
+        const stage = stages[id];
+        const btn = document.createElement("button");
+        btn.className = "stage";
+        btn.type = "button";
+        btn.textContent = stage.label;
+        btn.onclick = () => setStage(id, true);
+        btn.dataset.stage = id;
+        stagebar.appendChild(btn);
+      });
+    }
+
+    function setStage(id, announce) {
+      clearStageTimers();
+      state.stage = id;
+      document.querySelectorAll(".stage").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.stage === id);
+      });
+      stageChip.textContent = stages[id].label;
+      chatPane.classList.toggle("guide-mode", stages[id].mode === "guide");
+      if (announce && stages[id].mode !== "guide" && !hasMessagesForStage(id)) {
+        addMessage("ai", stages[id].ask);
+        if (id === "safePlace") scheduleSafePlaceQuestion();
+      }
+      renderMessages();
+      renderPolicy();
+      renderOutputs();
+      updateComposerState();
+    }
+
+    function clearStageTimers() {
+      if (safePlacePromptTimer) {
+        clearTimeout(safePlacePromptTimer);
+        safePlacePromptTimer = null;
+      }
+    }
+
+    function scheduleSafePlaceQuestion() {
+      safePlacePromptTimer = setTimeout(() => {
+        safePlacePromptTimer = null;
+        const hasUserReply = state.messages.some(msg => msg.stage === "safePlace" && msg.who === "user");
+        const alreadyAsked = state.messages.some(msg => msg.stage === "safePlace" && msg.text === stages.safePlace.delayedAsk);
+        if (state.stage === "safePlace" && !hasUserReply && !alreadyAsked) {
+          addMessage("ai", stages.safePlace.delayedAsk);
+        }
+      }, 8000);
+    }
+
+    function hasMessagesForStage(stageId) {
+      return state.messages.some(msg => msg.stage === stageId);
+    }
+
+    function addMessage(who, text) {
+      state.messages.push({ who, text, stage: state.stage, at: new Date().toISOString() });
+      renderMessages();
+      updateComposerState();
+    }
+
+    function renderMessages() {
+      messages.innerHTML = "";
+      if (stages[state.stage].mode === "guide") {
+        renderGuide();
+        return;
+      }
+      const stageMessages = state.messages.filter(msg => msg.stage === state.stage);
+      stageMessages.forEach(msg => {
+        const el = document.createElement("div");
+        el.className = `msg ${msg.who}`;
+        const who = msg.who === "ai" ? "Jemmy" : "User";
+        el.innerHTML = `<span class="who">${who} 쨌 ${stages[msg.stage].label}</span>${escapeHtml(msg.text)}`;
+        messages.appendChild(el);
+      });
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    function renderGuide() {
+      const stage = stages[state.stage];
+      const wrap = document.createElement("div");
+      wrap.className = "guide";
+      const intro = document.createElement("section");
+      intro.className = "guide-card";
+      intro.innerHTML = `<h2>${escapeHtml(stage.guideTitle)}</h2><p>${escapeHtml(stage.guideBody)}</p>`;
+      const flow = document.createElement("section");
+      flow.className = "guide-card";
+      flow.innerHTML = `<h2>Process Flow</h2><div class="guide-steps">${stage.guideFlow.map(step => `<section class="guide-step"><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.text)}</p></section>`).join("")}</div>`;
+      wrap.appendChild(intro);
+      wrap.appendChild(flow);
+      messages.appendChild(wrap);
+    }
+
+    function renderPolicy() {
+      const stage = stages[state.stage];
+      policyKv.innerHTML = `
+        <dt>Stage</dt><dd>${stage.label}</dd>
+        <dt>AI Personality</dt><dd>${companionPersonality.label}</dd>
+        <dt>Role</dt><dd>${stage.role}</dd>
+        <dt>Goal</dt><dd>${stage.goal}</dd>
+        <dt>Rule</dt><dd>AI 諛쒗솕??subtitle, ?ъ슜??諛쒗솕??input/chat bubble?먮쭔 ?쒖떆. ${companionPersonality.rule}</dd>
+      `;
+      policyTags.innerHTML = "";
+      stage.tags.forEach(tag => {
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.textContent = tag;
+        policyTags.appendChild(pill);
+      });
+    }
+
+    function renderOutputs() {
+      updateVisibleOutputCards();
+
+      safeOutput.textContent = state.safePlace.description
+        ? `Description: ${state.safePlace.description}\nPrompt: ${state.safePlace.prompt || ""}\nImage model: ${state.safePlace.imageModel || "not generated"}\nStatus: ${state.safePlace.status || "waiting"}`
+        : "?꾩쭅 safe place description???놁뒿?덈떎.";
+      renderSafePlacePreview();
+
+      bodyOutput.innerHTML = renderBodyMapIntroOutput();
+
+      regionOutput.innerHTML = renderRegionProfile();
+      objectifyOutput.innerHTML = renderObjectifyPipeline();
+
+      payload.textContent = JSON.stringify(buildPipelineExportPayload(), null, 2);
+    }
+
+    function updateVisibleOutputCards() {
+      document.querySelectorAll(".stage-output-card").forEach(card => {
+        const target = card.dataset.outputStage;
+        let visible = target === state.stage;
+        if (target === "all") visible = state.stage !== "objectify3d";
+        if (target === "regionReflection") visible = false;
+        if (target === "payload") visible = state.stage === "bodyMapIntro";
+        card.classList.toggle("hidden", !visible);
+      });
+    }
+
+    function renderSafePlacePreview() {
+      safePreview.innerHTML = "";
+      safePreview.classList.toggle("has-image", Boolean(state.safePlace.imageDataUrl));
+      if (state.safePlace.imageDataUrl) {
+        const img = document.createElement("img");
+        img.src = state.safePlace.imageDataUrl;
+        img.alt = "Generated safe place panorama";
+        safePreview.appendChild(img);
+      }
+    }
+
+    function renderBodyMapIntroOutput() {
+      const bridge = state.analysisBridge;
+      const metaRows = Object.entries(state.bodyMappingMeta).map(([key, value]) => {
+        return `<dt>${key}</dt><dd>${escapeHtml(value || "waiting for image analysis")}</dd>`;
+      }).join("");
+      const payloadSummary = bridge.payload
+        ? `<div class="json-box"><pre>${escapeHtml(JSON.stringify({
+            imageBase64: bridge.payload.imageBase64 ? "[base64 image data]" : "",
+            regions: bridge.regions
+          }, null, 2))}</pre></div>`
+        : `<div class="slot-empty">Sample body_map_payload.json will appear here.</div>`;
+      const regionList = bridge.regions.length
+        ? `<div class="region-list">${bridge.regions.map(region => renderAnalysisRegionCard(region)).join("")}</div>`
+        : `<div class="slot-empty">Load the sample body map data to populate selectable emotion regions.</div>`;
+      const sampleImages = state.bodyMapSample.annotatedImageDataUrl || state.bodyMapSample.transparentImageDataUrl
+        ? `<div class="sample-images">
+            ${state.bodyMapSample.annotatedImageDataUrl ? `<div class="sample-image-panel"><p>annotated analysis</p><img class="generated-image" src="${escapeHtml(state.bodyMapSample.annotatedImageDataUrl)}" alt="Annotated body map sample" /></div>` : ""}
+            ${state.bodyMapSample.transparentImageDataUrl ? `<div class="sample-image-panel"><p>transparent body map</p><img class="generated-image" src="${escapeHtml(state.bodyMapSample.transparentImageDataUrl)}" alt="Transparent body map sample" /></div>` : ""}
+          </div>`
+        : `<div class="slot-empty">Sample files: body_map_annotated.png, body_map_transparent.png, body_map_payload.json</div>`;
+      return `
+        <div class="objectify-slots">
+          <section class="objectify-slot">
+            <div class="slot-head">
+              <span>Body Mapping debug controls</span>
+              <span class="slot-status">sample pipeline</span>
+            </div>
+            <div class="slot-body">
+              <div class="slot-actions debug-actions">
+                <button type="button" class="secondary mini-button" id="loadSampleBodyMapBtn">Load sample body map</button>
+                <button type="button" class="secondary mini-button" id="autoRegionDataBtn">Auto generate region data</button>
+                <button type="button" class="primary mini-button" id="sendRegionToPromptBtn">Send data to image prompt</button>
+              </div>
+              <p class="muted">
+                ?붾쾭源??먮쫫: body map sample 濡쒕뱶 -> region ?좏깮/?먮룞 ?곗씠???앹꽦 -> 3D Objectify??image_prompt slot?쇰줈 ?꾨떖.
+              </p>
+            </div>
+          </section>
+
+          <section class="objectify-slot">
+            <div class="slot-head">
+              <span>Unity implementation note</span>
+              <span class="slot-status">required bridge</span>
+            </div>
+            <div class="slot-body">
+              <p>
+                Unity?먯꽌??Body Mapping ?④퀎?먯꽌 ?ъ슜?먮?
+                <a href="https://jyoon006008.github.io/body-map-vr-experience/web/" target="_blank" rel="noreferrer">https://jyoon006008.github.io/body-map-vr-experience/web/</a>
+                濡?蹂대궡 body map ?대?吏瑜??낅줈?쒗븯寃??쒕떎. ???ъ씠?몄뿉???뚯븘?ㅻ뒗 BodyMapPayload? annotated/transparent body map ?대?吏瑜?諛쏆븘??
+                Unity??InteractiveRegion3D region metadata濡?蹂?섑븳 ??Region Reflection ??붾? ?쒖옉?쒕떎.
+              </p>
+              <p class="muted">
+                ??HTML ?꾨줈?좏??낆쓽 Load sample data 踰꾪듉? body_map_payload.json, body_map_annotated.png, body_map_transparent.png瑜?媛숈? 諛섑솚媛믪쓽 ?덉떆濡?遺덈윭?⑤떎.
+              </p>
+            </div>
+          </section>
+
+          <section class="objectify-slot">
+            <div class="slot-head">
+              <span>Body map sample input</span>
+              <div class="slot-actions">
+                <span class="slot-status">${bridge.payload ? "sample loaded" : "waiting"}</span>
+                <button type="button" class="primary mini-button" data-action="loadSampleBodyMap">Load sample data</button>
+              </div>
+            </div>
+            <div class="slot-body">
+              ${sampleImages}
+              ${state.bodyMapSample.files && state.bodyMapSample.files.payload ? `<pre>${escapeHtml(state.bodyMapSample.files.payload)}</pre>` : ""}
+            </div>
+          </section>
+
+          <section class="objectify-slot">
+            <div class="slot-head"><span>BodyMapPayload</span><span class="slot-status">${bridge.payload ? `${bridge.regions.length} region(s)` : "waiting"}</span></div>
+            <div class="slot-body">
+              ${payloadSummary}
+            </div>
+          </section>
+
+          <section class="objectify-slot">
+            <div class="slot-head"><span>InteractiveRegion3D regions</span><span class="slot-status">${bridge.selectedRegionId ? `selected ${escapeHtml(String(bridge.selectedRegionId))}` : "select one"}</span></div>
+            <div class="slot-body">
+              ${regionList}
+            </div>
+          </section>
+
+          <section class="objectify-slot">
+            <div class="slot-head"><span>Selected region for Region Reflection</span><span class="slot-status">${state.bodyMappingMeta.region_id ? "filled" : "waiting"}</span></div>
+            <div class="slot-body">
+              <dl class="kv">${metaRows}</dl>
+            </div>
+          </section>
+
+          <section class="objectify-slot">
+            <div class="slot-head">
+              <span>Region Reflection data collected inside Body Mapping</span>
+              <span class="slot-status">${state.readyToContinue.bodyMapIntro ? "ready for 3D Objectify" : "collecting"}</span>
+            </div>
+            <div class="slot-body">
+              ${renderRegionProfile()}
+            </div>
+          </section>
+        </div>
+      `;
+    }
+
+    function renderAnalysisRegionCard(region) {
+      const selected = String(region.id) === String(state.analysisBridge.selectedRegionId);
+      const color = region.color_hex || "#d9e2ec";
+      const label = region.emotion_label || region.color_name || `region ${region.id}`;
+      const details = [
+        region.body_location,
+        region.visual_shape,
+        region.description
+      ].filter(Boolean).join(" / ");
+      return `
+        <div class="region-card" style="--region-color:${escapeHtml(color)}">
+          <span class="region-swatch"></span>
+          <p>${escapeHtml(label)}<small>${escapeHtml(details || "InteractiveRegion3D metadata")}</small></p>
+          <button type="button" class="secondary mini-button region-select-btn" data-region-id="${escapeHtml(String(region.id))}">${selected ? "Selected" : "Select"}</button>
+        </div>
+      `;
+    }
+
+    function renderRegionProfile() {
+      const labels = {
+        emotion: "Emotion",
+        texture: "Texture",
+        metaphor: "Metaphor",
+        material: "Material",
+        surface: "Surface",
+        motion: "Motion",
+        weight: "Weight",
+        temperature: "Temperature"
+      };
+      const required = ["emotion", "texture", "motion", "temperature", "metaphor"];
+      const keys = Object.keys(labels);
+      const filledRequired = required.filter(key => state.regionProfile[key]).length;
+      const metaRows = Object.entries(state.bodyMappingMeta).map(([key, value]) => {
+        return `<dt>${key}</dt><dd>${escapeHtml(value || "waiting for body mapping")}</dd>`;
+      }).join("");
+      const rows = keys.map(key => {
+        const value = state.regionProfile[key] || "not collected";
+        const mark = state.regionProfile[key] ? "✓" : "·";
+        return `<dt>${mark} ${labels[key]}</dt><dd>${escapeHtml(value)}</dd>`;
+      }).join("");
+      return `
+        <div class="slot-actions" style="justify-content:flex-end; margin-bottom:10px;">
+          <button type="button" class="secondary mini-button" data-action="autoRegionData">Auto generate data</button>
+          <button type="button" class="primary mini-button" data-action="sendRegionToPrompt">Send to 3D Objectify</button>
+        </div>
+        <p>Body Mapping Meta - passed from InteractiveRegion3D</p>
+        <dl class="kv">${metaRows}</dl>
+        <p style="margin-top:12px;">Conversation Extraction - collected by Jemmy</p>
+        <p>MVP coverage: ${filledRequired}/${required.length} required fields</p>
+        <dl class="kv">${rows}</dl>
+      `;
+    }
+
+    function renderObjectifyPipeline() {
+      const required = ["emotion", "texture", "motion", "temperature", "metaphor"];
+      const readyData = required.every(key => Boolean(state.regionProfile[key]));
+      const hasRegionMeta = ["color", "color_hex", "pattern"].every(key => Boolean(state.bodyMappingMeta[key]));
+      const style = objectificationStyleContract;
+      const outputs = state.objectifyOutputs;
+      const promptReady = Boolean(outputs.image_prompt);
+      const imageReady = Boolean(outputs.generated_image_url || outputs.generated_image_path);
+      const modelReady = Boolean(outputs.generated_3d_url || outputs.generated_3d_path);
+      const modelSrc = getModelViewerSrc();
+      return `
+        <div class="objectify-slots">
+          <section class="objectify-slot">
+            <div class="slot-head">
+              <span>image_prompt</span>
+              <div class="slot-actions">
+                <span class="slot-status">${outputs.image_prompt_status || (promptReady ? "filled" : "empty slot")}</span>
+                <button type="button" class="primary mini-button" id="sendPromptToImageBtn" ${promptReady ? "" : "disabled"}>Send to image</button>
+              </div>
+            </div>
+            <div class="slot-body">
+              ${promptReady
+                ? `<pre>${escapeHtml(outputs.image_prompt)}</pre>`
+                : `<div class="slot-empty">PromptGenerator.BuildProductionImagePrompt() result will appear here.</div>`}
+            </div>
+          </section>
+
+          <section class="objectify-slot">
+            <div class="slot-head">
+              <span>generated image</span>
+              <div class="slot-actions">
+                <span class="slot-status">${outputs.generated_image_status || (imageReady ? "filled" : "empty slot")}</span>
+                <button type="button" class="secondary mini-button" id="loadSampleImageBtn">Sample image</button>
+                <button type="button" class="primary mini-button" id="sendImageTo3dBtn" ${imageReady ? "" : "disabled"}>Send to 3D</button>
+              </div>
+            </div>
+            <div class="slot-body">
+              ${outputs.generated_image_url
+                ? `<img class="generated-image" src="${escapeHtml(outputs.generated_image_url)}" alt="Generated object image" />`
+                : `<div class="slot-empty">OpenAIImageGenerator output PNG will appear here.<br>UserData/{userId}/images/region_{id}.png</div>`}
+              ${outputs.generated_image_path ? `<pre>${escapeHtml(outputs.generated_image_path)}</pre>` : ""}
+              ${outputs.reference_images_used && outputs.reference_images_used.length ? `<pre>references: ${escapeHtml(outputs.reference_images_used.join(", "))}</pre>` : ""}
+            </div>
+          </section>
+
+          <section class="objectify-slot">
+            <div class="slot-head">
+              <span>generated 3D</span>
+              <div class="slot-actions">
+                <span class="slot-status">${outputs.generated_3d_status || (modelReady ? "filled" : "empty slot")}</span>
+                <button type="button" class="secondary mini-button" id="loadSample3dBtn">Sample input</button>
+                <button type="button" class="secondary mini-button" id="generate3dBtn" ${outputs.generated_3d_status === "generating" ? "disabled" : ""}>${outputs.generated_3d_status === "generating" ? "Generating..." : "Generate"}</button>
+              </div>
+            </div>
+            <div class="slot-body">
+              ${modelSrc
+                ? `<model-viewer class="model-viewer" src="${escapeHtml(modelSrc)}" camera-controls auto-rotate shadow-intensity="0.35" exposure="1" alt="Generated 3D emotion object"></model-viewer>`
+                : `<div class="slot-empty">Meshy GLB output will appear here when imageOnlyMode is false.<br>UserData/{userId}/models/region_{id}.glb</div>`}
+              ${outputs.generated_3d_url ? `<pre>${escapeHtml(outputs.generated_3d_url)}</pre>` : ""}
+              ${outputs.generated_3d_path ? `<pre>${escapeHtml(outputs.generated_3d_path)}</pre>` : ""}
+            </div>
+          </section>
+        </div>
+
+        <p style="margin-top:12px;"><strong>Current readiness:</strong> data ${readyData ? "ready" : "not ready"} / region meta ${hasRegionMeta ? "ready" : "not ready"}</p>
+        <dl class="kv">
+          <dt>Style bible</dt><dd>${escapeHtml(style.styleProfilePath)}</dd>
+          <dt>References</dt><dd>${escapeHtml(style.referenceImages.join(", "))}</dd>
+          <dt>Image model</dt><dd>${escapeHtml(style.imageGeneration.model)} / ${escapeHtml(style.imageGeneration.size)}</dd>
+        </dl>
+      `;
+    }
+
+    function buildPipelineExportPayload() {
+      const conversation = state.messages
+        .filter(msg => msg.stage === "bodyMapIntro" || msg.stage === "regionReflection")
+        .map(msg => ({
+          role: msg.who === "ai" ? "assistant" : "user",
+          content: msg.text
+        }));
+
+      return {
+        unity_entry_point: "EmotionObjectificationPipeline.StartPipeline(conversation, region)",
+        html_scope: "Collect and organize inputs before Unity prompt/image/3D generation.",
+        body_mapping_implementation_contract: {
+          unity_flow: "Unity opens the external body-map analysis site, the user uploads a body map image there, the site returns BodyMapPayload plus annotated/transparent body map images, and Unity converts the selected region into InteractiveRegion3D metadata for Region Reflection.",
+          analysis_site_url: "https://jyoon006008.github.io/body-map-vr-experience/web/",
+          sample_files: {
+            payload_json: "C:/Users/junwo/Downloads/body_map_payload.json",
+            annotated_image: "C:/Users/junwo/Downloads/body_map_annotated.png",
+            transparent_image: "C:/Users/junwo/Downloads/body_map_transparent.png"
+          },
+          expected_return_shape: {
+            imageBase64: "body map image data from the analysis site",
+            regions: "detected emotional body-map regions with color, pattern, body location, and description"
+          },
+          selected_region_contract: "The selected body-map region becomes bodyMappingMeta / InteractiveRegion3D data, then Jemmy uses it for Region Reflection and objectification data collection."
+        },
+        conversation,
+        region: {
+          id: state.bodyMappingMeta.region_id,
+          colorName: state.bodyMappingMeta.color,
+          colorHex: state.bodyMappingMeta.color_hex,
+          pattern: state.bodyMappingMeta.pattern,
+          bodyLocation: state.bodyMappingMeta.body_part,
+          description: state.bodyMappingMeta.visual_description
+        },
+        saved_json_shape: {
+          generated_by_unity_pipeline: true,
+          from_body_mapping: {
+            color: state.bodyMappingMeta.color,
+            color_hex: state.bodyMappingMeta.color_hex,
+            pattern: state.bodyMappingMeta.pattern,
+            body_part: state.bodyMappingMeta.body_part,
+            visual_description: state.bodyMappingMeta.visual_description
+          },
+          from_conversation: {
+            emotion: state.regionProfile.emotion,
+            texture: state.regionProfile.texture,
+            metaphor: state.regionProfile.metaphor,
+            material: state.regionProfile.material,
+            surface: state.regionProfile.surface,
+            motion: state.regionProfile.motion,
+            weight: state.regionProfile.weight,
+            temperature: state.regionProfile.temperature
+          },
+          image_prompt: "Generated in Unity by PromptGenerator.BuildProductionImagePrompt()",
+          assets: {
+            image_path: "Generated in Unity: UserData/{userId}/images/region_{id}.png",
+            image_rmb_path: "Generated in Unity when background removal is enabled: UserData/{userId}/images/region_{id}_rmb.png",
+            model_path: "Generated in Unity when imageOnlyMode is false: UserData/{userId}/models/region_{id}.glb"
+          }
+        },
+        style_bible_contract: objectificationStyleContract,
+        objectification_pipeline: {
+          stage_outputs: {
+            image_prompt: {
+              slot: "objectifyOutputs.image_prompt",
+              value: state.objectifyOutputs.image_prompt,
+              source: "PromptGenerator.BuildProductionImagePrompt()"
+            },
+            generated_image: {
+              slot: "objectifyOutputs.generated_image_url / generated_image_path",
+              url: state.objectifyOutputs.generated_image_url,
+              path: state.objectifyOutputs.generated_image_path,
+              source: "OpenAIImageGenerator.GeneratePngCoroutine()",
+              unity_path: "UserData/{userId}/images/region_{id}.png"
+            },
+            generated_3d: {
+              slot: "objectifyOutputs.generated_3d_url / generated_3d_path",
+              url: state.objectifyOutputs.generated_3d_url,
+              path: state.objectifyOutputs.generated_3d_path,
+              status: state.objectifyOutputs.generated_3d_status,
+              source: "Meshy3DConverter.ImageToGlbCoroutine()",
+              unity_path: "UserData/{userId}/models/region_{id}.glb",
+              requires: "imageOnlyMode = false"
+            }
+          },
+          unity_scene_default_observed: {
+            imageOnlyMode: true,
+            removeBackgroundBeforeMeshy: true
+          },
+          full_3d_requires: "Set EmotionObjectificationPipeline.imageOnlyMode = false in Unity.",
+          steps: [
+            "PromptGenerator.GeneratePromptCoroutine",
+            "PromptGenerator.BuildProductionImagePrompt",
+            "OpenAIImageGenerator.GeneratePngCoroutine",
+            "ImageBackgroundRemover.SaveRemovedBackgroundPng",
+            "Meshy3DConverter.ImageToGlbCoroutine",
+            "ObjectSpawner.SpawnEmotionObject"
+          ]
+        },
+        prototype_context: {
+          aiSystem: "Jemmy, single AI companion",
+          companionPersonality,
+          currentStage: state.stage,
+          safePlace: state.safePlace,
+          bodyMap: state.bodyMap,
+          bodyMapAnalysisBridge: {
+            analysisSiteUrl: "https://jyoon006008.github.io/body-map-vr-experience/web/",
+            sampleFiles: state.bodyMapSample.files,
+            loadedRegionCount: state.analysisBridge.regions.length,
+            selectedRegionId: state.analysisBridge.selectedRegionId
+          },
+          allStageMessageCounts: Object.fromEntries(
+            Object.keys(stages).map(stageId => [
+              stageId,
+              state.messages.filter(msg => msg.stage === stageId).length
+            ])
+          )
+        }
+      };
+    }
+
+    function handleUserText(text) {
+      if (state.readyToContinue[state.stage]) {
+        state.freeTalk[state.stage] = true;
+      }
+      addMessage("user", text);
+      captureStageData(text);
+      collectOutput(text);
+      requestJemmyReply(text);
+    }
+
+    document.addEventListener("click", event => {
+      if (event.target && event.target.id === "generate3dBtn") {
+        generateObject3D();
+      }
+      if (event.target && event.target.id === "loadSample3dBtn") {
+        loadSample3D();
+      }
+      if (event.target && event.target.id === "autoRegionDataBtn") {
+        autoGenerateRegionData();
+      }
+      if (event.target && event.target.dataset.action === "autoRegionData") {
+        autoGenerateRegionData();
+      }
+      if (event.target && event.target.id === "sendRegionToPromptBtn") {
+        sendRegionDataToPrompt();
+      }
+      if (event.target && event.target.dataset.action === "sendRegionToPrompt") {
+        sendRegionDataToPrompt();
+      }
+      if (event.target && event.target.id === "sendPromptToImageBtn") {
+        generateObjectImage();
+      }
+      if (event.target && event.target.id === "loadSampleImageBtn") {
+        loadSampleImage();
+      }
+      if (event.target && event.target.id === "sendImageTo3dBtn") {
+        sendImageTo3DSlot();
+      }
+      if (event.target && event.target.id === "checkUnityReceiverBtn") {
+        checkUnityReceiver();
+      }
+      if (event.target && event.target.id === "openAnalyseSiteBtn") {
+        openAnalyseSite();
+      }
+      if (event.target && event.target.id === "loadMockAnalysisBtn") {
+        loadMockAnalysisResult();
+      }
+      if (event.target && event.target.id === "loadSampleBodyMapBtn") {
+        loadSampleBodyMapData();
+      }
+      if (event.target && event.target.dataset.action === "loadSampleBodyMap") {
+        loadSampleBodyMapData();
+      }
+      if (event.target && event.target.classList.contains("region-select-btn")) {
+        selectAnalysisRegion(event.target.dataset.regionId);
+      }
+    });
+
+    document.addEventListener("change", event => {
+      if (event.target && event.target.id === "bodyMapFileInput") {
+        handleBodyMapUpload(event.target.files && event.target.files[0]);
+      }
+    });
+
+    function handleBodyMapUpload(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        state.uploadedBodyMap.imageDataUrl = String(reader.result || "");
+        state.uploadedBodyMap.fileName = file.name;
+        state.uploadedBodyMap.status = "uploaded";
+        state.analysisBridge.analyseSiteStatus = "image ready for analyse site";
+        state.bodyMap.summary = "Body map image uploaded for analyse site. Region metadata is waiting for BodyMapPayload.";
+        renderOutputs();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function checkUnityReceiver() {
+      state.analysisBridge.receiverStatus = "checking";
+      renderOutputs();
+      try {
+        const response = await fetch(`${state.analysisBridge.unityReceiverUrl}/ping`, { method: "GET" });
+        state.analysisBridge.receiverStatus = response.ok ? "connected" : `HTTP ${response.status}`;
+      } catch (error) {
+        console.error(error);
+        state.analysisBridge.receiverStatus = "offline";
+      } finally {
+        renderOutputs();
+      }
+    }
+
+    function openAnalyseSite() {
+      state.analysisBridge.analyseSiteStatus = "analyse site URL is not configured in this HTML prototype";
+      renderOutputs();
+    }
+
+    function loadMockAnalysisResult() {
+      const imageBase64 = state.uploadedBodyMap.imageDataUrl
+        ? state.uploadedBodyMap.imageDataUrl.split(",").pop()
+        : "";
+      const payload = {
+        imageBase64,
+        regions: [
+          {
+            id: 1,
+            color_name: "green",
+            color_hex: "#2fa866",
+            body_region: "upper body",
+            body_side: "left",
+            body_location: "left chest and shoulder",
+            emotion_label: "pressure that is still enduring",
+            visual_shape: "dense scribble patch",
+            description: "A green area that feels a little tight but still holds on.",
+            bounding_box: { x: 210, y: 260, width: 140, height: 210 },
+            center: { x: 280, y: 365 },
+            center_normalized: { x: 0.42, y: 0.51 },
+            pixel_count: 12840,
+            area_ratio: 0.08,
+            image_base64: ""
+          },
+          {
+            id: 2,
+            color_name: "dark blue and yellow",
+            color_hex: "#263b70",
+            body_region: "upper body",
+            body_side: "right",
+            body_location: "right shoulder and arm",
+            emotion_label: "restless heaviness",
+            visual_shape: "cross-hatched block",
+            description: "A dark blue shape crossed by yellow strokes, heavy but active.",
+            bounding_box: { x: 410, y: 230, width: 180, height: 270 },
+            center: { x: 500, y: 365 },
+            center_normalized: { x: 0.61, y: 0.5 },
+            pixel_count: 19020,
+            area_ratio: 0.12,
+            image_base64: ""
+          }
+        ]
+      };
+      applyBodyMapPayload(payload);
+      state.analysisBridge.returnStatus = "mock BodyMapPayload loaded";
+      state.analysisBridge.analyseSiteStatus = "mock analysis completed";
+      renderOutputs();
+    }
+
+    async function loadSampleBodyMapData() {
+      state.analysisBridge.returnStatus = "loading sample files";
+      renderOutputs();
+      try {
+        const payloadResponse = await fetch(prototypeAsset("body_map_payload.json"));
+        if (!payloadResponse.ok) throw new Error("Sample body_map_payload.json not found.");
+        const data = {
+          payload: await payloadResponse.json(),
+          annotatedImageDataUrl: prototypeAsset("body_map_annotated.png"),
+          transparentImageDataUrl: prototypeAsset("body_map_transparent.png"),
+          files: {
+            payload: "jemmy-prototype-assets/body_map_payload.json",
+            annotated: "jemmy-prototype-assets/body_map_annotated.png",
+            transparent: "jemmy-prototype-assets/body_map_transparent.png"
+          }
+        };
+        state.bodyMapSample.annotatedImageDataUrl = data.annotatedImageDataUrl || "";
+        state.bodyMapSample.transparentImageDataUrl = data.transparentImageDataUrl || "";
+        state.bodyMapSample.files = data.files || {};
+        applyBodyMapPayload(data.payload || {});
+        state.analysisBridge.returnStatus = "sample BodyMapPayload loaded";
+        state.bodyMap.summary = "Sample body map payload loaded. Select a region to begin Region Reflection.";
+      } catch (error) {
+        console.error(error);
+        state.analysisBridge.returnStatus = "sample load failed";
+      } finally {
+        renderOutputs();
+      }
+    }
+
+    function applyBodyMapPayload(payload) {
+      state.analysisBridge.payload = payload;
+      state.analysisBridge.regions = Array.isArray(payload.regions) ? payload.regions : [];
+      state.analysisBridge.returnStatus = `received ${state.analysisBridge.regions.length} region(s)`;
+      state.bodyMap.summary = "Unity received BodyMapPayload and created InteractiveRegion3D region candidates.";
+    }
+
+    function selectAnalysisRegion(regionId, shouldRender = true) {
+      const region = state.analysisBridge.regions.find(item => String(item.id) === String(regionId));
+      if (!region) return;
+      const previousRegionId = state.analysisBridge.selectedRegionId;
+      state.analysisBridge.selectedRegionId = String(region.id);
+      state.bodyMappingMeta.region_id = String(region.id || "");
+      state.bodyMappingMeta.color = region.color_name || "";
+      state.bodyMappingMeta.color_hex = region.color_hex || "";
+      state.bodyMappingMeta.pattern = region.visual_shape || "";
+      state.bodyMappingMeta.body_part = region.body_location || region.body_region || "";
+      state.bodyMappingMeta.visual_description = region.description || "";
+      state.bodyMap.region = region.emotion_label || region.description || "";
+      if (shouldRender && state.stage === "bodyMapIntro" && previousRegionId !== state.analysisBridge.selectedRegionId) {
+        const prompt = "이제 이 감정 영역에 대해 이야기해 볼까요? 이 부분은 어떤 감정에 가까운지 말해 주세요.";
+        addMessage("ai", prompt);
+      }
+      if (shouldRender) renderOutputs();
+    }
+
+    function autoGenerateRegionData() {
+      if (!state.bodyMappingMeta.region_id) {
+        if (!state.analysisBridge.regions.length) {
+          loadMockAnalysisResult();
+        } else {
+          selectAnalysisRegion(state.analysisBridge.regions[0].id, false);
+        }
+      }
+      state.regionProfile = {
+        ...state.regionProfile,
+        emotion: state.regionProfile.emotion || "답답하지만 버티고 있는 감정",
+        texture: state.regionProfile.texture || "촘촘하고 눌린 낙서 같은 질감",
+        metaphor: state.regionProfile.metaphor || "작게 뭉친 초록색 압력 덩어리",
+        material: state.regionProfile.material || "soft rubber clay",
+        surface: state.regionProfile.surface || "uneven scribbled surface with layered strokes",
+        motion: state.regionProfile.motion || "slowly pulsing inward and outward",
+        weight: state.regionProfile.weight || "medium-heavy",
+        temperature: state.regionProfile.temperature || "slightly cool"
+      };
+      renderOutputs();
+    }
+
+    function sendRegionDataToPrompt() {
+      autoGenerateRegionData();
+      state.objectifyOutputs.image_prompt = buildObjectImagePrompt();
+      state.objectifyOutputs.image_prompt_status = "received from Region Objectification Data";
+      setStage("objectify3d", false);
+      renderOutputs();
+    }
+
+    function buildObjectImagePrompt() {
+      const region = state.bodyMappingMeta;
+      const profile = state.regionProfile;
+      const style = objectificationStyleContract;
+      return [
+        "Create one abstract emotional toy object for a VR art therapy objectification pipeline.",
+        `Emotion: ${profile.emotion}.`,
+        `Body map source: ${region.color} (${region.color_hex}), ${region.pattern}, located around ${region.body_part}.`,
+        `Visual feeling: ${region.visual_description}.`,
+        `Texture/material/surface: ${profile.texture}; ${profile.material}; ${profile.surface}.`,
+        `Motion/weight/temperature: ${profile.motion}; ${profile.weight}; ${profile.temperature}.`,
+        `Metaphor: ${profile.metaphor}.`,
+        `Style: ${style.styleLocks.join(", ")}.`,
+        `Eye design: ${style.eyeDesignRules.join(", ")}.`,
+        "A stylized abstract emotional toy creature with soft toy proportions, rounded expressive silhouette, centered, large simple detachable bead/googly eyes on the front upper body, non-horror.",
+        "Single centered object floating in an empty void, isolated on a solid neutral mid-gray background, no text, no person, no floor plane, no pedestal, no cast shadow, no contact shadow, no ground shadow, no drop shadow, no reflection, child-safe, suitable for later image-to-3D conversion."
+      ].join(" ");
+    }
+
+    async function generateObjectImage() {
+      if (!state.objectifyOutputs.image_prompt) {
+        state.objectifyOutputs.image_prompt_status = "prompt required";
+        renderOutputs();
+        return;
+      }
+      state.objectifyOutputs.generated_image_status = "generating";
+      renderOutputs();
+      try {
+        const response = await fetch(apiUrl("/api/object-image"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: state.objectifyOutputs.image_prompt,
+            regionId: state.bodyMappingMeta.region_id || "debug"
+          })
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const data = await response.json();
+        state.objectifyOutputs.generated_image_url = data.imageDataUrl || "";
+        state.objectifyOutputs.generated_image_path = data.imagePath || "";
+        state.objectifyOutputs.reference_images_used = data.referenceImagesUsed || [];
+        state.objectifyOutputs.generated_image_status = data.status || "generated";
+      } catch (error) {
+        console.error(error);
+        state.objectifyOutputs.generated_image_status = "generation failed";
+      } finally {
+        renderOutputs();
+      }
+    }
+
+    function sendImageTo3DSlot() {
+      if (!state.objectifyOutputs.generated_image_url && !state.objectifyOutputs.generated_image_path) {
+        state.objectifyOutputs.generated_3d_status = "image required";
+      } else {
+        state.objectifyOutputs.generated_3d_status = "image ready; press Generate";
+      }
+      renderOutputs();
+    }
+
+    function loadSampleImage() {
+      state.objectifyOutputs.generated_image_url = prototypeAsset("object_region_1.png");
+      state.objectifyOutputs.generated_image_path = "C:\\Users\\junwo\\Documents\\Codex\\2026-05-31\\dp-vr-art-therapy\\outputs\\generated\\object_region_1.png";
+      state.objectifyOutputs.generated_image_status = "sample loaded";
+      state.objectifyOutputs.reference_images_used = ["ref01.png", "ref02.png"];
+      renderOutputs();
+    }
+
+    function loadSample3D() {
+      state.objectifyOutputs.generated_3d_url = prototypeAsset("region_1.glb");
+      state.objectifyOutputs.generated_3d_path = "C:\\Users\\junwo\\Documents\\Codex\\2026-05-31\\dp-vr-art-therapy\\outputs\\generated\\region_1.glb";
+      state.objectifyOutputs.generated_3d_status = "sample loaded";
+      renderOutputs();
+    }
+
+    function getModelViewerSrc() {
+      const outputs = state.objectifyOutputs;
+      if (outputs.generated_3d_url) return outputs.generated_3d_url;
+      const path = outputs.generated_3d_path || "";
+      const normalized = path.replace(/\\/g, "/");
+      const marker = "/outputs/";
+      const index = normalized.indexOf(marker);
+      if (index >= 0) return "/" + normalized.slice(index + marker.length);
+      return "";
+    }
+
+    async function generateObject3D() {
+      const imageDataUrl = state.objectifyOutputs.generated_image_url;
+      const imagePath = state.objectifyOutputs.generated_image_path;
+      if (!imageDataUrl && !imagePath) {
+        state.objectifyOutputs.generated_3d_status = "image required";
+        renderOutputs();
+        return;
+      }
+
+      state.objectifyOutputs.generated_3d_status = "generating";
+      renderOutputs();
+      try {
+        const response = await fetch(apiUrl("/api/meshy-3d"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            imageDataUrl,
+            imagePath,
+            regionId: state.bodyMappingMeta.region_id || "debug"
+          })
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const data = await response.json();
+        state.objectifyOutputs.generated_3d_url = data.modelUrl || "";
+        state.objectifyOutputs.generated_3d_path = data.modelPath || "";
+        state.objectifyOutputs.generated_3d_status = data.status || "generated";
+      } catch (error) {
+        console.error(error);
+        state.objectifyOutputs.generated_3d_status = "generation failed";
+      } finally {
+        renderOutputs();
+      }
+    }
+
+    async function requestJemmyReply(text) {
+      setComposerBusy(true);
+      try {
+        const apiStage = state.stage === "bodyMapIntro" && state.bodyMappingMeta.region_id
+          ? "regionReflection"
+          : state.stage;
+        const response = await fetch(apiUrl("/api/jemmy"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            stage: apiStage,
+            text,
+            userName: state.userName,
+            readyToContinue: Boolean(state.readyToContinue[state.stage]),
+            personality: companionPersonality,
+            outputs: {
+              safePlace: state.safePlace,
+              bodyMap: state.bodyMap,
+              prompts: state.prompts
+            },
+            regionProfile: state.regionProfile,
+            bodyMappingMeta: state.bodyMappingMeta,
+            messages: state.messages
+              .filter(msg => msg.stage === state.stage)
+              .slice(-10)
+          })
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const data = await response.json();
+        if (data.extractedName) state.userName = data.extractedName;
+        if (data.safePlaceDescription) {
+          state.safePlace.description = data.safePlaceDescription;
+          state.safePlace.prompt = buildPanoramaPrompt(data.safePlaceDescription);
+        }
+        if (data.bodyMapSummary) state.bodyMap.summary = data.bodyMapSummary;
+        if (data.conversationExtraction) mergeRegionExtraction(data.conversationExtraction);
+        if (data.objectPrompt) state.prompts.objectPrompt = data.objectPrompt;
+        const shouldGenerateSafePlace = state.stage === "safePlace" && Boolean(data.readyToContinue) && state.safePlace.description && !state.safePlace.imageDataUrl;
+        state.readyToContinue[state.stage] = shouldGenerateSafePlace ? false : Boolean(data.readyToContinue);
+        addMessage("ai", data.reply || "議곌툑 ???댁빞湲고빐 二쇱떎 ???덉쓣源뚯슂?");
+        if (shouldGenerateSafePlace) {
+          generateSafePlacePanorama();
+        }
+        renderOutputs();
+      } catch (error) {
+        console.error(error);
+        addMessage("ai", "지금 Jemmy API 응답을 받지 못했어요. 로컬 서버 또는 Render API URL 설정을 확인해 주세요.");
+      } finally {
+        setComposerBusy(false);
+        updateComposerState();
+      }
+    }
+
+    function buildPanoramaPrompt(description) {
+      return "A calming 360 equirectangular panorama safe place for VR art therapy, immersive but gentle, " +
+        "soft natural light, quiet atmosphere, no people, no text, seamless horizon, based on: " + description;
+    }
+
+    async function generateSafePlacePanorama() {
+      state.safePlace.status = "generating panorama with OpenAI Images API";
+      renderOutputs();
+      try {
+        const response = await fetch(apiUrl("/api/safe-place-panorama"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ description: state.safePlace.description })
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+        const data = await response.json();
+        state.safePlace.prompt = data.prompt;
+        state.safePlace.imageModel = data.model;
+        state.safePlace.imageSize = data.size;
+        state.safePlace.imageDataUrl = data.imageDataUrl;
+        state.safePlace.status = "generated";
+        state.readyToContinue.safePlace = true;
+        addMessage("ai", "Safe Place Panorama媛 以鍮꾨릱?댁슂. 以鍮꾨릺硫??ㅼ쓬 Body Mapping?쇰줈 ?섏뼱媛??愿쒖갖?꾩슂.");
+      } catch (error) {
+        console.error(error);
+        state.safePlace.status = "image generation failed";
+        addMessage("ai", "safe place panorama ?대?吏瑜??앹꽦?섏? 紐삵뻽?댁슂. 濡쒖뺄 Jemmy API ?쒕쾭? OpenAI Images API ?묐떟???뺤씤??二쇱꽭??");
+      } finally {
+        renderOutputs();
+        updateComposerState();
+      }
+    }
+
+    function mergeRegionExtraction(extraction) {
+      if (extraction.material_hint && !extraction.material) {
+        extraction.material = extraction.material_hint;
+      }
+      Object.keys(state.regionProfile).forEach(key => {
+        if (extraction[key]) state.regionProfile[key] = extraction[key];
+      });
+    }
+
+    function setComposerBusy(isBusy) {
+      input.disabled = isBusy;
+      voiceBtn.disabled = isBusy;
+      composer.querySelector(".primary").disabled = isBusy;
+      input.placeholder = isBusy ? "Jemmy가 답을 준비하고 있습니다..." : "여기에 답을 입력하세요";
+    }
+
+    function isGithubPagesPrototype() {
+      return window.location.hostname.endsWith("github.io");
+    }
+
+    function prototypeAsset(path) {
+      return `jemmy-prototype-assets/${path}`;
+    }
+
+    function apiBaseUrl() {
+      const configured = window.JEMMY_API_BASE_URL || localStorage.getItem("jemmy_api_base_url") || DEFAULT_REMOTE_API_BASE;
+      return (configured || "").replace(/\/$/, "");
+    }
+
+    function apiUrl(path) {
+      const base = apiBaseUrl();
+      if (base) return `${base}${path}`;
+      if (!isGithubPagesPrototype()) return path;
+      throw new Error("Render API URL is not configured. Set window.JEMMY_API_BASE_URL or localStorage.jemmy_api_base_url.");
+    }
+
+    function captureStageData(text) {
+      if (state.stage === "smallTalk") {
+        const userMessages = state.messages.filter(msg => msg.stage === "smallTalk" && msg.who === "user").length;
+        if (userMessages === 1) {
+          state.userName = cleanUserName(text);
+        }
+      }
+    }
+
+    function cleanUserName(text) {
+      return text
+        .replace(/[\r\n]/g, " ")
+        .replace(/Jemmy|AI|companion/gi, " ")
+        .replace(/^(안녕|안녕하세요|반가워|제 이름은|내 이름은|나는|저는)\s*/g, "")
+        .replace(/(이야|예요|이에요|입니다|라고 불러줘|으로 불러줘|로 불러줘|라고 해)\s*$/g, "")
+        .replace(/[.!?。！？]+$/g, "")
+        .trim();
+    }
+
+    function updateComposerState() {
+      const isGuide = stages[state.stage].mode === "guide";
+      composer.classList.toggle("guide-locked", isGuide);
+      input.disabled = isGuide;
+      voiceBtn.disabled = isGuide;
+      stageActions.classList.toggle("visible", Boolean(state.readyToContinue[state.stage]) && !isGuide);
+    }
+
+    function collectOutput(text) {
+      if (state.stage === "safePlace") {
+        state.safePlace.description = text;
+        state.safePlace.prompt = buildPanoramaPrompt(text);
+        state.safePlace.status = state.safePlace.status || "collecting description";
+      }
+      if (state.stage === "bodyMapIntro") {
+        state.bodyMap.summary = text;
+      }
+      if (state.stage === "regionReflection") {
+        state.bodyMap.region = state.bodyMap.region || "auto-selected emotion region";
+        state.prompts.regionReflection = text;
+      }
+      renderOutputs();
+    }
+
+    function makeMockAIReply(text) {
+      const stage = stages[state.stage];
+      const nextStage = stages[stage.next];
+      if (state.stage === "intro") return "留뚮굹??諛섍??뚯슂. ?댁젣 ?ㅻ뒛 ?섎（???먮굦??泥쒖쿇???좎삱??蹂쇨퉴??";
+      if (state.stage === "smallTalk") {
+        const userMessages = state.messages.filter(msg => msg.stage === "smallTalk" && msg.who === "user").length;
+        if (state.freeTalk.smallTalk) {
+          return `議곌툑 ???댁빞湲고빐 以섏꽌 怨좊쭏?뚯슂. "${text}"?쇨퀬 ?먭뺨吏??遺遺꾩쓣 ?쒕몮???섍린吏 ?딄퀬 媛숈씠 ?ㅼ뼱蹂쇨쾶?? 洹??먮굦??吏湲?紐몄씠??留덉쓬 ?대뵒??媛???ш쾶 ?⑥븘 ?덈굹??`;
+        }
+        if (userMessages <= 1) {
+          const name = state.userName || "?뱀떊";
+          return `留뚮굹??諛섍??뚯슂, ${name}?? ?명븯寃?泥쒖쿇???쒖옉??蹂쇨쾶?? ?ㅻ뒛 ?섎（???대뼚?⑤굹??`;
+        }
+        if (userMessages === 2) {
+          return "?댁빞湲고빐 二쇱뀛??怨좊쭏?뚯슂. 洹??섎（媛 留덉쓬???④릿 ?먮굦???④퍡 ?댄렣遊먮룄 愿쒖갖?ㅻ㈃, 吏湲?媛???⑥븘 ?덈뒗 媛먯젙? 臾댁뾿?멸???";
+        }
+        state.readyToContinue.smallTalk = true;
+        return "?댁빞湲고빐 二쇱뀛??怨좊쭏?뚯슂. 洹?媛먯젙??吏湲??⑥븘 ?덈떎??嫄??④퍡 ?뺤씤?덉뼱?? 蹂멸꺽?곸쑝濡?媛먯젙???먯깋?섍린 ?꾩뿉, 以鍮꾧? ?섎㈃ ?몄븞?⑥쓣 ?먮굜 ???덈뒗 怨듦컙???좎삱由щ뒗 ?④퀎濡??섏뼱媛 蹂쇨쾶??";
+      }
+      if (state.stage === "safePlace") return "醫뗭븘?? 洹?怨듦컙??議곌툑???덉쟾?섍쾶 ?먭뺨吏??紐⑥뒿?쇰줈 ?먮━ ?↔퀬 ?덈뒗 寃?媛숈븘?? 洹멸납??鍮쏆씠???됯컧? ?대뼡 ?먮굦?대㈃ 醫뗭쓣源뚯슂?";
+      if (state.stage === "bodyMapIntro") return "洹몃┝ ?덉뿉 ?ㅻ뒛??寃쏀뿕??紐몄뿉 ?⑥? 諛⑹떇???닿꺼 ?덈뒗 寃껋쿂???ㅻ젮?? 媛??癒쇱? ?덉씠 媛???됱씠??遺遺꾩? ?대뵒?멸???";
+      if (state.stage === "regionReflection") return "洹?遺遺꾩씠 以묒슂???좏샇泥섎읆 ?먭뺨議뚯쓣 ?섎룄 ?덇쿋?댁슂. 洹?媛먯젙???먯뿉 ?용뒗?ㅻ㈃ ?대뼡 珥됯컧?쇨퉴??";
+      return `醫뗭븘?? ???댁슜??${nextStage.label} ?④퀎??異쒕젰?쇰줈 ?섍만 ???덇쾶 ?뺣━???섍쾶??`;
+    }
+
+    function escapeHtml(text) {
+      return text.replace(/[&<>"']/g, ch => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#039;"
+      }[ch]));
+    }
+
+    composer.addEventListener("submit", event => {
+      event.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      handleUserText(text);
+    });
+
+    continueBtn.addEventListener("click", () => {
+      const currentStage = state.stage;
+      state.readyToContinue[currentStage] = false;
+      setStage(stages[currentStage].next, true);
+    });
+
+    talkMoreBtn.addEventListener("click", () => {
+      state.freeTalk[state.stage] = true;
+      addMessage("ai", "臾쇰줎?댁뿉?? ?뺥빐吏??먮쫫??諛붾줈 ?섏뼱媛吏 ?딆븘??愿쒖갖?꾩슂. 吏湲???遺遺꾩뿉 ???議곌툑 ??留먰빐 二쇨퀬 ?띕떎硫??명븯寃??댁뼱???댁빞湲고빐 二쇱꽭??");
+      updateComposerState();
+      input.focus();
+    });
+
+    voiceBtn.addEventListener("click", () => {
+      const examples = {
+        intro: "以?곕씪怨?遺덈윭以?",
+        smallTalk: "?ㅻ뒛? 議곌툑 蹂듭옟?덉?留??댁젣??李⑤텇?댁죱??",
+        safePlace: "諛붾떎媛 蹂댁씠怨?諛붾엺???붿옍???믪? ?뚮씪??媛숈? 怨녹씠硫?醫뗪쿋??",
+        bodyMapIntro: "??洹몃┝? ?ㅻ뒛 ?섎（瑜?吏?섏삤硫댁꽌 紐몄뿉 ?⑥? ?먮굦??洹몃┛ 嫄곗빞.",
+        regionReflection: "珥덈줉??遺遺꾩? 議곌툑 ?듬떟?섏?留?洹몃옒??踰꾪떚怨??덈뒗 媛먯젙 媛숈븘."
+      };
+      input.value = "?뚯꽦???몄떇?섍퀬 ?덉뒿?덈떎...";
+      window.setTimeout(() => {
+        input.value = examples[state.stage];
+        input.focus();
+      }, 450);
+    });
+
+    initStageButtons();
+    setStage("intro", false);
+  </script>
+</body>
+</html>
+
