@@ -192,6 +192,7 @@ let templateImg = null;   // base silhouette Image
 let drawingImg = null;    // participant's drawing Image
 let result = null;        // analysis output
 let currentTab = 'transparent';
+let previewCache = null;
 let unityConnected = false;
 
 // Backend API endpoint – Render cloud backend
@@ -2880,6 +2881,7 @@ async function sendToUnity() {
    ═══════════════════════════════════════════════ */
 function renderResults() {
   if (!result) return;
+  previewCache = null;
   showTab(currentTab);
  
   const el = document.getElementById('regList');
@@ -2908,44 +2910,137 @@ function showTab(tab) {
   currentTab = tab;
   if (!result) return;
   const box = document.getElementById('prevBox');
+  if (!previewCache) previewCache = buildPreviewCache();
   
   // reset style
   box.style.overflowY = 'visible';
   box.style.maxHeight = 'none';
+  box.style.background = tab === 'transparent' ? '#000' : '#111';
+  box.replaceChildren(previewCache.root);
+
+  Object.entries(previewCache.panels).forEach(([key, panel]) => {
+    panel.style.display = key === tab ? '' : 'none';
+  });
 
   if (tab === 'alignment') {
-    box.style.background = '#111';
     box.style.overflowY = 'auto';
     box.style.maxHeight = '380px';
-    
-    let html = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 14px; padding: 14px; width: 100%;">`;
-    for (const r of result.regions) {
-      const spriteUrl = `data:image/png;base64,${r.image_base64}`;
-      html += `
-        <div style="background: #1c1c20; border: 1px solid #2a2a30; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; align-items: center; text-align: center; color: #e8e8ec;">
-          <div style="width: 80px; height: 80px; background: #000; border-radius: 4px; display: flex; justify-content: center; align-items: center; margin-bottom: 8px; border: 1px solid #2a2a30; position: relative;">
-            <img src="${spriteUrl}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
-          </div>
-          <div style="font-size: 11px; font-weight: bold; margin-bottom: 2px;">#${r.id} ${r.color}</div>
-          <div style="font-size: 10px; color: #8888a0; margin-bottom: 4px;">${r.body_part}</div>
-          <div style="font-size: 9px; color: #6c5ce7; font-family: monospace;">Count: ${r.pixelCount}</div>
-          <div style="font-size: 9px; color: #8888a0; font-family: monospace;">${r.paddedBBox.width}x${r.paddedBBox.height}</div>
-        </div>
-      `;
-    }
-    html += `</div>`;
-    box.innerHTML = html;
-  } else {
-    const urls = { transparent: result.transparentUrl, annotated: result.annotatedUrl, diff: result.diffUrl };
-    const bg = tab === 'transparent' ? '#000' : '#111';
-    box.style.background = bg;
-    box.innerHTML = `<img src="${urls[tab]}" alt="${tab}">`;
   }
  
   document.querySelectorAll('.preview-tabs button').forEach(b => {
     const onclickAttr = b.getAttribute('onclick') || '';
     b.classList.toggle('active', onclickAttr.includes(`'${tab}'`));
   });
+}
+
+function buildPreviewCache() {
+  const root = document.createElement('div');
+  root.style.width = '100%';
+
+  const panels = {
+    transparent: buildImagePanel(result.transparentUrl, 'transparent'),
+    annotated: buildImagePanel(result.annotatedUrl, 'annotated'),
+    diff: buildImagePanel(result.diffUrl, 'diff'),
+    alignment: buildAlignmentPanel()
+  };
+
+  Object.values(panels).forEach(panel => {
+    panel.style.display = 'none';
+    root.appendChild(panel);
+  });
+
+  return { root, panels };
+}
+
+function buildImagePanel(url, alt) {
+  const panel = document.createElement('div');
+  panel.style.display = 'flex';
+  panel.style.justifyContent = 'center';
+  panel.style.alignItems = 'center';
+  panel.style.width = '100%';
+
+  const img = document.createElement('img');
+  img.src = url;
+  img.alt = alt;
+  img.decoding = 'async';
+  panel.appendChild(img);
+  return panel;
+}
+
+function buildAlignmentPanel() {
+  const panel = document.createElement('div');
+  panel.style.display = 'grid';
+  panel.style.gridTemplateColumns = 'repeat(auto-fill, minmax(130px, 1fr))';
+  panel.style.gap = '14px';
+  panel.style.padding = '14px';
+  panel.style.width = '100%';
+
+  for (const r of result.regions) {
+    const card = document.createElement('div');
+    card.style.background = '#1c1c20';
+    card.style.border = '1px solid #2a2a30';
+    card.style.borderRadius = '8px';
+    card.style.padding = '10px';
+    card.style.display = 'flex';
+    card.style.flexDirection = 'column';
+    card.style.alignItems = 'center';
+    card.style.textAlign = 'center';
+    card.style.color = '#e8e8ec';
+
+    const spriteWrap = document.createElement('div');
+    spriteWrap.style.width = '80px';
+    spriteWrap.style.height = '80px';
+    spriteWrap.style.background = '#000';
+    spriteWrap.style.borderRadius = '4px';
+    spriteWrap.style.display = 'flex';
+    spriteWrap.style.justifyContent = 'center';
+    spriteWrap.style.alignItems = 'center';
+    spriteWrap.style.marginBottom = '8px';
+    spriteWrap.style.border = '1px solid #2a2a30';
+    spriteWrap.style.position = 'relative';
+
+    const img = document.createElement('img');
+    img.src = `data:image/png;base64,${r.image_base64}`;
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.style.maxWidth = '100%';
+    img.style.maxHeight = '100%';
+    img.style.objectFit = 'contain';
+    spriteWrap.appendChild(img);
+
+    const title = document.createElement('div');
+    title.style.fontSize = '11px';
+    title.style.fontWeight = 'bold';
+    title.style.marginBottom = '2px';
+    title.textContent = `#${r.id} ${r.color}`;
+
+    const part = document.createElement('div');
+    part.style.fontSize = '10px';
+    part.style.color = '#8888a0';
+    part.style.marginBottom = '4px';
+    part.textContent = r.body_part;
+
+    const count = document.createElement('div');
+    count.style.fontSize = '9px';
+    count.style.color = '#6c5ce7';
+    count.style.fontFamily = 'monospace';
+    count.textContent = `Count: ${r.pixelCount}`;
+
+    const bbox = document.createElement('div');
+    bbox.style.fontSize = '9px';
+    bbox.style.color = '#8888a0';
+    bbox.style.fontFamily = 'monospace';
+    bbox.textContent = `${r.paddedBBox.width}x${r.paddedBBox.height}`;
+
+    card.appendChild(spriteWrap);
+    card.appendChild(title);
+    card.appendChild(part);
+    card.appendChild(count);
+    card.appendChild(bbox);
+    panel.appendChild(card);
+  }
+
+  return panel;
 }
  
 /* ═══════════════════════════════════════════════
