@@ -113,7 +113,7 @@ input[type=file]{display:none}
       </div>
       <input type="file" id="fileInput" accept="image/*">
       <div class="btn-row" style="margin-top: 12px; gap: 8px;">
-        <button class="btn btn-s" onclick="loadDemoImage()">✨ Load Demo Image (SampleBodyMap)</button>
+        <button class="btn btn-s" onclick="loadDemoImage()">✨ Load Demo Image (IMG_2089)</button>
         <button class="btn btn-s" onclick="dlTemplate()">📥 Download Silhouette Template</button>
       </div>
     </div>
@@ -277,12 +277,6 @@ async function fetchKeysFromUnity() {
         if (el) el.value = openAiApiKey;
         localStorage.setItem('openAiApiKey', openAiApiKey);
       }
-      if (data.Tripo3D_API_Key) {
-        tripo3DApiKey = data.Tripo3D_API_Key;
-        const el = document.getElementById('tripoKeyInput');
-        if (el) el.value = tripo3DApiKey;
-        localStorage.setItem('tripo3DApiKey', tripo3DApiKey);
-      }
       updateApiKeysStatus('Loaded from Unity Server');
     }
   } catch (e) {
@@ -344,13 +338,14 @@ function loadDrawing(file) {
 }
  
 function loadDemoImage() {
+  const demoImagePath = 'IMG_2089.JPG';
   const img = new Image();
   img.onload = () => {
     drawingImg = img;
     uploadZone.innerHTML = '';
     uploadZone.classList.add('has');
     const prev = document.createElement('img');
-    prev.src = demoImageBase64;
+    prev.src = demoImagePath;
     uploadZone.appendChild(prev);
     document.getElementById('analyzeBtn').disabled = !templateImg;
     setStatus('Demo body map loaded. Ready to analyze.');
@@ -358,7 +353,7 @@ function loadDemoImage() {
   img.onerror = () => {
     setStatus('Failed to load demo image.');
   };
-  img.src = demoImageBase64;
+  img.src = demoImagePath;
 }
 
 /* ???????????????????????????????????????????????
@@ -432,9 +427,9 @@ function classifyPixelColor(h, s, v) {
     return 'red';
   }
   if (h >= 155 && h < 165) return 'pink';
-  if (h >= 125 && h < 155) return 'purple';
+  if (h >= 138 && h < 155) return 'purple';
   
-  if (h >= 100 && h < 125) {
+  if (h >= 95 && h < 138) {
     if (v < 100) return 'navy';
     return 'blue';
   }
@@ -2385,6 +2380,13 @@ async function runAnalysis() {
   const validRegions = [];
   for (const r of finalMergedRegions) {
     const bboxArea = r.bbox.width * r.bbox.height;
+    const regionCenterY = (r.bbox.y + r.bbox.height / 2) / workH;
+    const isUpperBodyBlue =
+      r.color === 'blue' &&
+      regionCenterY >= 0.18 &&
+      regionCenterY <= 0.58 &&
+      r.bbox.height >= bodyHeight * 0.22;
+
     const isOversized =
       r.bbox.height > bodyHeight * 0.75 ||
       r.bbox.width > bodyWidth * 0.8 ||
@@ -2392,7 +2394,7 @@ async function runAnalysis() {
 
     const isBlackBodyOutline = (r.color === 'black' && r.bbox.height >= bodyHeight * 0.5);
 
-    if (isOversized || isBlackBodyOutline) {
+    if ((isOversized && !isUpperBodyBlue) || isBlackBodyOutline) {
       console.log(`[filter-oversized] Removed region color=${r.color} width=${r.bbox.width} height=${r.bbox.height} (bodyHeight=${bodyHeight}, bodyWidth=${bodyWidth})`);
       continue;
     }
@@ -2462,7 +2464,7 @@ async function runAnalysis() {
   }
 
   // Demo image validation: exact 8 regions check
-  const isDemoImage = drawingImg.src && drawingImg.src.includes('sample_body_map');
+  const isDemoImage = drawingImg.src && (drawingImg.src.includes('sample_body_map') || drawingImg.src.includes('IMG_2089'));
   if (isDemoImage && regionsList.length !== 8) {
     console.warn(`[validation] Demo image detected but region count is ${regionsList.length} instead of 8.`);
   }
